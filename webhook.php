@@ -43,6 +43,9 @@ if (!$number) {
 // Log pesan masuk
 logMessage($phone, 'system', $message, 'in', 'received', '');
 
+// Jeda sebelum membalas
+sleep(20);
+
 // Generate balasan acak
 $reply = generateRandomText($number['name'] ?? '');
 
