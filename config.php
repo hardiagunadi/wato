@@ -1,5 +1,5 @@
 <?php
 
-define('WA_GATEWAY_URL', 'http://localhost:5001');
-define('WA_GATEWAY_KEY', 'a2246d37caa1dd0e86b97d1ddcdfbd83');
+define('WA_GATEWAY_URL', 'https://gateway-watumalang.wonosobokab.go.id/wa');
+define('WA_GATEWAY_KEY', '275840a1b144c2b0b543a0e3a19982dd');
 define('DB_PATH', __DIR__ . '/wato.db');
