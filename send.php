@@ -20,7 +20,7 @@ function sendWaMessage(string $sessionId, string $toPhone, string $message, stri
         CURLOPT_POST           => true,
         CURLOPT_POSTFIELDS     => $payload,
         CURLOPT_HTTPHEADER     => [
-            'Authorization: ' . WA_GATEWAY_KEY,
+            'key: ' . WA_GATEWAY_KEY,
             'Content-Type: application/x-www-form-urlencoded',
         ],
         CURLOPT_TIMEOUT        => 15,

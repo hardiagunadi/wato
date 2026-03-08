@@ -81,7 +81,7 @@ $ch = curl_init(WA_GATEWAY_URL . '/api/device/info');
 curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_TIMEOUT => 5,
-    CURLOPT_HTTPHEADER => ['Authorization: ' . WA_GATEWAY_KEY],
+    CURLOPT_HTTPHEADER => ['key: ' . WA_GATEWAY_KEY],
 ]);
 $resp = curl_exec($ch);
 curl_close($ch);

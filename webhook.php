@@ -72,7 +72,7 @@ curl_setopt_array($ch, [
     CURLOPT_POST           => true,
     CURLOPT_POSTFIELDS     => $postData,
     CURLOPT_HTTPHEADER     => [
-        'Authorization: ' . WA_GATEWAY_KEY,
+        'key: ' . WA_GATEWAY_KEY,
         'Content-Type: application/x-www-form-urlencoded',
     ],
     CURLOPT_TIMEOUT        => 15,
