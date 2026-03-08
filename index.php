@@ -276,15 +276,41 @@ tr:hover td { background: #f8fafc; }
         <?= $cronOk ? 'Terpasang' : 'Tidak Terpasang' ?>
       </span>
     </p>
+    <?php
+      $cronInstallCmd = "sudo tee /etc/cron.d/wato << 'EOF'\n# Wato cron job\n*/30 * * * * www-data /usr/bin/php " . __DIR__ . "/send.php >> /var/log/wato.log 2>&1\nEOF";
+      $cronRemoveCmd  = "sudo rm /etc/cron.d/wato";
+    ?>
     <p style="font-size:0.75rem; color:#64748b; margin-bottom:6px;"><strong>Pasang:</strong></p>
-    <pre id="cron-install" style="background:#1e293b;color:#e2e8f0;padding:10px;border-radius:6px;font-size:0.7rem;overflow-x:auto;margin-bottom:6px;">sudo tee /etc/cron.d/wato &lt;&lt; 'EOF'
-# Wato cron job
-*/30 * * * * www-data /usr/bin/php <?= __DIR__ ?>/send.php >> /var/log/wato.log 2>&1
-EOF</pre>
-    <button onclick="navigator.clipboard.writeText('sudo tee /etc/cron.d/wato &lt;&lt; \'EOF\'\n# Wato cron job\n*/30 * * * * www-data /usr/bin/php <?= __DIR__ ?>/send.php >> /var/log/wato.log 2>&1\nEOF')" class="btn btn-gray btn-sm" style="margin-bottom:10px;">Salin Perintah Pasang</button>
+    <pre style="background:#1e293b;color:#e2e8f0;padding:10px;border-radius:6px;font-size:0.7rem;overflow-x:auto;margin-bottom:6px;white-space:pre-wrap;"><?= htmlspecialchars($cronInstallCmd) ?></pre>
+    <button onclick="copyText('cron-install-text', this)" data-text="<?= htmlspecialchars($cronInstallCmd, ENT_QUOTES) ?>" id="cron-install-text" class="btn btn-gray btn-sm" style="margin-bottom:12px;">Salin Perintah Pasang</button>
     <p style="font-size:0.75rem; color:#64748b; margin-bottom:6px;"><strong>Hapus:</strong></p>
-    <pre style="background:#1e293b;color:#e2e8f0;padding:10px;border-radius:6px;font-size:0.7rem;overflow-x:auto;margin-bottom:6px;">sudo rm /etc/cron.d/wato</pre>
-    <button onclick="navigator.clipboard.writeText('sudo rm /etc/cron.d/wato')" class="btn btn-gray btn-sm">Salin Perintah Hapus</button>
+    <pre style="background:#1e293b;color:#e2e8f0;padding:10px;border-radius:6px;font-size:0.7rem;overflow-x:auto;margin-bottom:6px;"><?= htmlspecialchars($cronRemoveCmd) ?></pre>
+    <button onclick="copyText('cron-remove-text', this)" data-text="<?= htmlspecialchars($cronRemoveCmd, ENT_QUOTES) ?>" id="cron-remove-text" class="btn btn-gray btn-sm">Salin Perintah Hapus</button>
+    <script>
+    function copyText(id, btn) {
+      var text = btn.getAttribute('data-text');
+      navigator.clipboard.writeText(text).then(function() {
+        var orig = btn.textContent;
+        btn.textContent = 'Tersalin!';
+        btn.style.background = '#16a34a';
+        setTimeout(function(){ btn.textContent = orig; btn.style.background = ''; }, 2000);
+      }).catch(function() {
+        // fallback
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        var orig = btn.textContent;
+        btn.textContent = 'Tersalin!';
+        btn.style.background = '#16a34a';
+        setTimeout(function(){ btn.textContent = orig; btn.style.background = ''; }, 2000);
+      });
+    }
+    </script>
   </div>
 
 </div>
