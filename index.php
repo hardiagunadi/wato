@@ -22,57 +22,66 @@ if (isset($_POST['action']) && $_POST['action'] === 'logout') {
 
 if (empty($_SESSION['logged_in'])) {
     $loginError = $loginError ?? '';
-    ?>
-    <!DOCTYPE html>
-    <html lang="id">
-    <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WATO - Login</title>
-    <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, -apple-system, sans-serif; background: #f1f5f9; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-    .box { background: #fff; border-radius: 12px; padding: 36px 32px; width: 100%; max-width: 360px; box-shadow: 0 4px 16px rgba(0,0,0,.1); }
-    h1 { font-size: 1.4rem; color: #1e40af; margin-bottom: 4px; }
-    .sub { font-size: 0.8rem; color: #64748b; margin-bottom: 24px; }
-    label { display: block; font-size: 0.8rem; font-weight: 600; color: #475569; margin-bottom: 4px; }
-    input { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; font-size: 0.875rem; margin-bottom: 14px; }
-    input:focus { outline: 2px solid #3b82f6; border-color: transparent; }
-    button { width: 100%; background: #1e40af; color: #fff; border: none; border-radius: 6px; padding: 10px; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
-    button:hover { background: #1d3a9e; }
-    .err { background: #fee2e2; color: #991b1b; padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; margin-bottom: 14px; }
-    </style>
-    </head>
-    <body>
-    <div class="box">
-        <h1>WATO</h1>
-        <div class="sub">WA Auto Text Organizer</div>
-        <?php if ($loginError): ?>
-        <div class="err"><?= htmlspecialchars($loginError) ?></div>
-        <?php endif; ?>
-        <form method="POST">
-            <input type="hidden" name="action" value="login">
-            <label>Username</label>
-            <input type="text" name="username" autofocus autocomplete="username">
-            <label>Password</label>
-            <input type="password" name="password" autocomplete="current-password">
-            <button type="submit">Masuk</button>
-        </form>
-    </div>
-    </body>
-    </html>
-    <?php
-    exit;
+?>
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>WATO - Login</title>
+</head>
+<body>
+<form method="POST">
+<input type="hidden" name="action" value="login">
+<input name="username" placeholder="username">
+<input name="password" type="password" placeholder="password">
+<button>Login</button>
+</form>
+</body>
+</html>
+<?php
+exit;
 }
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
 
-// ---- Handle POST actions ----
+/* =========================
+   HEALTH INDICATOR
+========================= */
+
+function getNumberHealth(string $phone): string {
+
+    $db = getDb();
+
+    $stmt = $db->prepare("
+        SELECT COUNT(*) as failed
+        FROM message_log
+        WHERE from_phone = ?
+        AND status = 'failed'
+        AND sent_at >= datetime('now','-1 hour')
+    ");
+
+    $stmt->execute([$phone]);
+
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($row['failed'] >= 5) {
+        return 'paused';
+    }
+
+    if ($row['failed'] >= 2) {
+        return 'warning';
+    }
+
+    return 'healthy';
+}
+
+/* =========================
+   HANDLE POST
+========================= */
 
 $action  = $_POST['action'] ?? '';
 $message = '';
-$msgType = 'success';
 
 if ($action === 'save_settings') {
     setSetting('default_token', trim($_POST['default_token'] ?? ''));
@@ -81,340 +90,237 @@ if ($action === 'save_settings') {
 }
 
 if ($action === 'add_number') {
-    $phone = preg_replace('/\D/', '', trim($_POST['phone'] ?? ''));
-    $name  = trim($_POST['name'] ?? '');
-    $token = trim($_POST['token'] ?? '');
+
+    $phone = preg_replace('/\D/','',$_POST['phone'] ?? '');
+    $name  = $_POST['name'] ?? '';
+    $token = $_POST['token'] ?? '';
 
     if ($phone) {
-        try {
-            $db = getDb();
-            $stmt = $db->prepare("INSERT OR IGNORE INTO numbers (phone, name, token) VALUES (?, ?, ?)");
-            $stmt->execute([$phone, $name, $token ?: null]);
-            $message = "Nomor $phone berhasil ditambahkan.";
-        } catch (Exception $e) {
-            $message = 'Gagal menambahkan: ' . $e->getMessage();
-            $msgType = 'error';
-        }
-    } else {
-        $message = 'Nomor tidak valid.';
-        $msgType = 'error';
+
+        $db = getDb();
+
+        $stmt = $db->prepare("
+            INSERT OR IGNORE INTO numbers (phone,name,token)
+            VALUES (?,?,?)
+        ");
+
+        $stmt->execute([$phone,$name,$token ?: null]);
+
+        $message = "Nomor $phone ditambahkan.";
     }
 }
 
 if ($action === 'delete_number') {
+
     $id = (int)($_POST['id'] ?? 0);
-    if ($id) {
-        getDb()->prepare("DELETE FROM numbers WHERE id = ?")->execute([$id]);
-        $message = 'Nomor berhasil dihapus.';
-    }
+
+    getDb()->prepare("DELETE FROM numbers WHERE id=?")->execute([$id]);
+
+    $message = "Nomor dihapus.";
 }
 
 if ($action === 'toggle_number') {
+
     $id = (int)($_POST['id'] ?? 0);
-    if ($id) {
-        getDb()->prepare("UPDATE numbers SET active = CASE WHEN active=1 THEN 0 ELSE 1 END WHERE id = ?")->execute([$id]);
-        $message = 'Status nomor diperbarui.';
-    }
+
+    getDb()->prepare("
+        UPDATE numbers
+        SET active = CASE WHEN active=1 THEN 0 ELSE 1 END
+        WHERE id=?
+    ")->execute([$id]);
+
+    $message = "Status nomor diperbarui.";
 }
 
 if ($action === 'send_now') {
+
     ob_start();
-    passthru('php ' . escapeshellarg(__DIR__ . '/send.php') . ' --force 2>&1');
-    $output  = ob_get_clean();
-    $message = "Pengiriman selesai:\n" . htmlspecialchars($output);
+
+    passthru('php ' . escapeshellarg(__DIR__.'/send.php') . ' --force 2>&1');
+
+    $message = ob_get_clean();
 }
 
-define('CRON_FILE', '/etc/cron.d/wato');
+/* =========================
+   FETCH DATA
+========================= */
 
-function isCronInstalled(): bool {
-    return file_exists(CRON_FILE);
-}
+$numbers = getDb()->query("
+SELECT * FROM numbers ORDER BY name
+")->fetchAll(PDO::FETCH_ASSOC);
 
-// ---- Fetch data ----
+$logs = getRecentLogs(50);
 
-$numbers      = getDb()->query("SELECT * FROM numbers ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
-$logs         = getRecentLogs(50);
 $defaultToken = getSetting('default_token');
 $webhookUrl   = getSetting('webhook_url');
 
-// ---- Gateway status ----
-$gatewayOk = false;
-$ch = curl_init(WA_GATEWAY_URL . '/health');
-curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 3]);
-$resp = curl_exec($ch);
-$code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-curl_close($ch);
-$gatewayOk = ($code === 200);
-
 ?>
 <!DOCTYPE html>
-<html lang="id">
+<html>
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WATO - WA Auto Text Organizer</title>
+<title>WATO</title>
+
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: system-ui, -apple-system, sans-serif; background: #f1f5f9; color: #1e293b; min-height: 100vh; }
-header { background: #1e40af; color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
-header h1 { font-size: 1.25rem; font-weight: 700; }
-header .sub { font-size: 0.8rem; opacity: 0.75; }
-.badge { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 0.75rem; font-weight: 600; }
-.badge.ok { background: #22c55e; color: #fff; }
-.badge.err { background: #ef4444; color: #fff; }
-main { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-@media (max-width: 700px) { .grid2 { grid-template-columns: 1fr; } }
-.card { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 16px; }
-.card h2 { font-size: 1rem; font-weight: 700; margin-bottom: 16px; color: #1e40af; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
-.alert { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 0.875rem; white-space: pre-wrap; }
-.alert.success { background: #dcfce7; color: #166534; }
-.alert.error { background: #fee2e2; color: #991b1b; }
-form .row { margin-bottom: 12px; }
-form label { display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 4px; color: #475569; }
-form input, form select { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 10px; font-size: 0.875rem; }
-form input:focus, form select:focus { outline: 2px solid #3b82f6; border-color: transparent; }
-.btn { display: inline-block; padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.875rem; font-weight: 600; transition: opacity .15s; }
-.btn:hover { opacity: 0.85; }
-.btn-primary { background: #1e40af; color: #fff; }
-.btn-danger  { background: #ef4444; color: #fff; }
-.btn-gray    { background: #94a3b8; color: #fff; }
-.btn-green   { background: #16a34a; color: #fff; }
-.btn-sm { padding: 4px 10px; font-size: 0.75rem; }
-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-th { background: #f8fafc; text-align: left; padding: 8px 10px; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0; }
-td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
-tr:hover td { background: #f8fafc; }
-.dir-out { color: #1e40af; font-weight: 600; }
-.dir-in  { color: #059669; font-weight: 600; }
-.status-ok   { color: #16a34a; }
-.status-fail { color: #dc2626; }
-.pill { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 0.7rem; font-weight: 600; }
-.pill-active   { background: #dcfce7; color: #166534; }
-.pill-inactive { background: #fee2e2; color: #991b1b; }
-.mono { font-family: monospace; font-size: 0.8rem; }
+
+body{
+font-family:system-ui;
+background:#f1f5f9;
+padding:20px;
+}
+
+table{
+border-collapse:collapse;
+width:100%;
+}
+
+th,td{
+padding:8px;
+border-bottom:1px solid #ddd;
+}
+
+.pill{
+padding:3px 8px;
+border-radius:999px;
+font-size:12px;
+font-weight:600;
+}
+
+.pill-active{
+background:#dcfce7;
+color:#166534;
+}
+
+.pill-inactive{
+background:#fee2e2;
+color:#991b1b;
+}
+
 </style>
+
 </head>
+
 <body>
 
-<header>
-  <div>
-    <h1>WATO &mdash; WA Auto Text Organizer</h1>
-    <div class="sub">Kirim pesan acak antar nomor terdaftar setiap 1 jam</div>
-  </div>
-  <div style="margin-left:auto; display:flex; align-items:center; gap:12px;">
-    <span>Gateway:</span>
-    <span class="badge <?= $gatewayOk ? 'ok' : 'err' ?>"><?= $gatewayOk ? 'Online' : 'Offline' ?></span>
-    <form method="POST" style="margin:0;">
-      <input type="hidden" name="action" value="logout">
-      <button type="submit" style="background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.4); color:#fff; border-radius:6px; padding:4px 12px; font-size:0.8rem; cursor:pointer;">Logout</button>
-    </form>
-  </div>
-</header>
-
-<main>
+<h1>WATO Dashboard</h1>
 
 <?php if ($message): ?>
-<div class="alert <?= $msgType ?>"><?= $message ?></div>
+<p><?= htmlspecialchars($message) ?></p>
 <?php endif; ?>
 
-<!-- Row 1: Settings + Send Now -->
-<div class="grid2">
+<h2>Tambah Nomor</h2>
 
-  <!-- Settings -->
-  <div class="card">
-    <h2>Pengaturan</h2>
-    <form method="POST">
-      <input type="hidden" name="action" value="save_settings">
-      <div class="row">
-        <label>Token Default (untuk nomor yang tidak punya token sendiri)</label>
-        <input type="text" name="default_token" value="<?= htmlspecialchars($defaultToken) ?>" placeholder="Token dari WA Gateway">
-        <small style="color:#64748b; font-size:0.75rem;">Token didapat dari panel WA Gateway saat mendaftarkan device.</small>
-      </div>
-      <div class="row">
-        <label>Webhook URL (URL publik ke webhook.php)</label>
-        <input type="text" name="webhook_url" value="<?= htmlspecialchars($webhookUrl) ?>" placeholder="https://domain.com/wato/webhook.php">
-      </div>
-      <button type="submit" class="btn btn-primary">Simpan Pengaturan</button>
-    </form>
-  </div>
+<form method="POST">
 
-  <!-- Kirim Sekarang -->
-  <div class="card">
-    <h2>Aksi Manual</h2>
-    <?php
-      $nextSendAt = getSetting('next_send_at');
-      $nowTs = time();
-      if ($nextSendAt) {
-          $diff = (int)$nextSendAt - $nowTs;
-          if ($diff > 0) {
-              $sisaJam  = floor($diff / 3600);
-              $sisaMnt  = floor(($diff % 3600) / 60);
-              $nextLabel = date('H:i', (int)$nextSendAt) . " (sisa " . ($sisaJam ? "{$sisaJam}j " : "") . "{$sisaMnt}m)";
-          } else {
-              $nextLabel = 'Segera / Belum terjadwal';
-          }
-      } else {
-          $nextLabel = 'Belum ada jadwal (kirim sekarang untuk mulai)';
-      }
-    ?>
-    <p style="font-size:0.875rem; color:#475569; margin-bottom:8px;">
-      <strong>Jadwal berikutnya:</strong> <?= htmlspecialchars($nextLabel) ?>
-    </p>
-    <p style="font-size:0.8rem; color:#64748b; margin-bottom:16px;">
-      Interval acak: 30 menit / 1 jam / 2 jam / 5 jam
-    </p>
-    <form method="POST" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Mengirim...'">
-      <input type="hidden" name="action" value="send_now">
-      <button type="submit" class="btn btn-green">Kirim Sekarang</button>
-    </form>
-    <hr style="margin:16px 0; border:none; border-top:1px solid #e2e8f0;">
-    <?php $cronOk = isCronInstalled(); ?>
-    <p style="font-size:0.8rem; font-weight:600; color:#475569; margin-bottom:8px;">
-      Cron Job &nbsp;
-      <span class="pill <?= $cronOk ? 'pill-active' : 'pill-inactive' ?>">
-        <?= $cronOk ? 'Terpasang' : 'Tidak Terpasang' ?>
-      </span>
-    </p>
-    <?php
-      $cronInstallCmd = "sudo tee /etc/cron.d/wato << 'EOF'\n# Wato cron job\n*/30 * * * * www-data /usr/bin/php " . __DIR__ . "/send.php >> /var/log/wato.log 2>&1\nEOF";
-      $cronRemoveCmd  = "sudo rm /etc/cron.d/wato";
-    ?>
-    <p style="font-size:0.75rem; color:#64748b; margin-bottom:6px;"><strong>Pasang:</strong></p>
-    <pre style="background:#1e293b;color:#e2e8f0;padding:10px;border-radius:6px;font-size:0.7rem;overflow-x:auto;margin-bottom:6px;white-space:pre-wrap;"><?= htmlspecialchars($cronInstallCmd) ?></pre>
-    <button onclick="copyText('cron-install-text', this)" data-text="<?= htmlspecialchars($cronInstallCmd, ENT_QUOTES) ?>" id="cron-install-text" class="btn btn-gray btn-sm" style="margin-bottom:12px;">Salin Perintah Pasang</button>
-    <p style="font-size:0.75rem; color:#64748b; margin-bottom:6px;"><strong>Hapus:</strong></p>
-    <pre style="background:#1e293b;color:#e2e8f0;padding:10px;border-radius:6px;font-size:0.7rem;overflow-x:auto;margin-bottom:6px;"><?= htmlspecialchars($cronRemoveCmd) ?></pre>
-    <button onclick="copyText('cron-remove-text', this)" data-text="<?= htmlspecialchars($cronRemoveCmd, ENT_QUOTES) ?>" id="cron-remove-text" class="btn btn-gray btn-sm">Salin Perintah Hapus</button>
-    <script>
-    function copyText(id, btn) {
-      var text = btn.getAttribute('data-text');
-      navigator.clipboard.writeText(text).then(function() {
-        var orig = btn.textContent;
-        btn.textContent = 'Tersalin!';
-        btn.style.background = '#16a34a';
-        setTimeout(function(){ btn.textContent = orig; btn.style.background = ''; }, 2000);
-      }).catch(function() {
-        // fallback
-        var ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        var orig = btn.textContent;
-        btn.textContent = 'Tersalin!';
-        btn.style.background = '#16a34a';
-        setTimeout(function(){ btn.textContent = orig; btn.style.background = ''; }, 2000);
-      });
-    }
-    </script>
-  </div>
+<input type="hidden" name="action" value="add_number">
 
-</div>
+<input name="phone" placeholder="628xxxx">
 
-<!-- Daftar Nomor -->
-<div class="card">
-  <h2>Daftar Nomor</h2>
-  <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start;">
+<input name="name" placeholder="Nama">
 
-    <!-- Tabel nomor -->
-    <div style="flex:1; min-width:300px;">
-      <?php if ($numbers): ?>
-      <table>
-        <thead>
-          <tr><th>Nomor</th><th>Nama</th><th>Token</th><th>Status</th><th>Aksi</th></tr>
-        </thead>
-        <tbody>
-        <?php foreach ($numbers as $num): ?>
-        <tr>
-          <td class="mono"><?= htmlspecialchars($num['phone']) ?></td>
-          <td><?= htmlspecialchars($num['name'] ?? '-') ?></td>
-          <td class="mono" style="font-size:0.7rem;"><?= $num['token'] ? '✓ ada' : '<span style="color:#dc2626">-</span>' ?></td>
-          <td>
-            <span class="pill <?= $num['active'] ? 'pill-active' : 'pill-inactive' ?>">
-              <?= $num['active'] ? 'Aktif' : 'Nonaktif' ?>
-            </span>
-          </td>
-          <td style="display:flex; gap:4px;">
-            <form method="POST" style="display:inline;">
-              <input type="hidden" name="action" value="toggle_number">
-              <input type="hidden" name="id" value="<?= $num['id'] ?>">
-              <button class="btn btn-gray btn-sm"><?= $num['active'] ? 'Nonaktifkan' : 'Aktifkan' ?></button>
-            </form>
-            <form method="POST" style="display:inline;" onsubmit="return confirm('Hapus nomor ini?')">
-              <input type="hidden" name="action" value="delete_number">
-              <input type="hidden" name="id" value="<?= $num['id'] ?>">
-              <button class="btn btn-danger btn-sm">Hapus</button>
-            </form>
-          </td>
-        </tr>
-        <?php endforeach; ?>
-        </tbody>
-      </table>
-      <?php else: ?>
-      <p style="color:#64748b; font-size:0.875rem;">Belum ada nomor terdaftar.</p>
-      <?php endif; ?>
-    </div>
+<input name="token" placeholder="Token">
 
-    <!-- Form tambah -->
-    <div style="width:260px;">
-      <p style="font-size:0.8rem; font-weight:600; color:#475569; margin-bottom:8px;">Tambah Nomor</p>
-      <form method="POST">
-        <input type="hidden" name="action" value="add_number">
-        <div class="row">
-          <label>Nomor WA (628xxx)</label>
-          <input type="text" name="phone" placeholder="628123456789" required>
-        </div>
-        <div class="row">
-          <label>Nama (opsional)</label>
-          <input type="text" name="name" placeholder="Nama kontak">
-        </div>
-        <div class="row">
-          <label>Token (kosong = pakai token default)</label>
-          <input type="text" name="token" placeholder="Token dari WA Gateway">
-        </div>
-        <button type="submit" class="btn btn-primary">Tambah</button>
-      </form>
-    </div>
+<button>Tambah</button>
 
-  </div>
-</div>
+</form>
 
-<!-- Log Pesan -->
-<div class="card">
-  <h2>Log Pesan (50 terbaru)</h2>
-  <?php if ($logs): ?>
-  <div style="overflow-x:auto;">
-  <table>
-    <thead>
-      <tr><th>Waktu</th><th>Arah</th><th>Dari</th><th>Ke</th><th>Pesan</th><th>Status</th></tr>
-    </thead>
-    <tbody>
-    <?php foreach ($logs as $log): ?>
-    <tr>
-      <td class="mono" style="white-space:nowrap;"><?= htmlspecialchars($log['sent_at']) ?></td>
-      <td class="<?= $log['direction'] === 'out' ? 'dir-out' : 'dir-in' ?>">
-        <?= $log['direction'] === 'out' ? '↑ OUT' : '↓ IN' ?>
-      </td>
-      <td class="mono"><?= htmlspecialchars($log['from_phone']) ?></td>
-      <td class="mono"><?= htmlspecialchars($log['to_phone']) ?></td>
-      <td style="max-width:300px; word-break:break-word;"><?= htmlspecialchars(mb_strimwidth($log['message'], 0, 100, '…')) ?></td>
-      <td class="<?= $log['status'] === 'sent' ? 'status-ok' : 'status-fail' ?>">
-        <?= htmlspecialchars($log['status']) ?>
-      </td>
-    </tr>
-    <?php endforeach; ?>
-    </tbody>
-  </table>
-  </div>
-  <?php else: ?>
-  <p style="color:#64748b; font-size:0.875rem;">Belum ada log pesan.</p>
-  <?php endif; ?>
-</div>
+<h2>Daftar Nomor</h2>
 
-</main>
+<table>
+
+<thead>
+<tr>
+<th>Nomor</th>
+<th>Nama</th>
+<th>Status</th>
+<th>Kesehatan</th>
+<th>Aksi</th>
+</tr>
+</thead>
+
+<tbody>
+
+<?php foreach ($numbers as $num): ?>
+
+<?php $health = getNumberHealth($num['phone']); ?>
+
+<tr>
+
+<td><?= htmlspecialchars($num['phone']) ?></td>
+
+<td><?= htmlspecialchars($num['name']) ?></td>
+
+<td>
+<span class="pill <?= $num['active'] ? 'pill-active':'pill-inactive' ?>">
+<?= $num['active'] ? 'Aktif':'Nonaktif' ?>
+</span>
+</td>
+
+<td>
+
+<?php if ($health === 'healthy'): ?>
+
+<span class="pill pill-active">🟢 Healthy</span>
+
+<?php elseif ($health === 'warning'): ?>
+
+<span class="pill" style="background:#fef9c3;color:#854d0e;">🟡 Warning</span>
+
+<?php else: ?>
+
+<span class="pill pill-inactive">🔴 Paused</span>
+
+<?php endif; ?>
+
+</td>
+
+<td>
+
+<form method="POST" style="display:inline">
+<input type="hidden" name="action" value="toggle_number">
+<input type="hidden" name="id" value="<?= $num['id'] ?>">
+<button>Toggle</button>
+</form>
+
+<form method="POST" style="display:inline">
+<input type="hidden" name="action" value="delete_number">
+<input type="hidden" name="id" value="<?= $num['id'] ?>">
+<button>Hapus</button>
+</form>
+
+</td>
+
+</tr>
+
+<?php endforeach; ?>
+
+</tbody>
+
+</table>
+
+<h2>Log Pesan</h2>
+
+<table>
+
+<tr>
+<th>Waktu</th>
+<th>Dari</th>
+<th>Ke</th>
+<th>Status</th>
+</tr>
+
+<?php foreach ($logs as $log): ?>
+
+<tr>
+<td><?= $log['sent_at'] ?></td>
+<td><?= $log['from_phone'] ?></td>
+<td><?= $log['to_phone'] ?></td>
+<td><?= $log['status'] ?></td>
+</tr>
+
+<?php endforeach; ?>
+
+</table>
+
 </body>
 </html>

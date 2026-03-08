@@ -14,52 +14,104 @@ if (!$payload) {
     exit;
 }
 
-// Normalize: bisa dari berbagai format webhook wa-gateway
+/* =========================
+   NORMALIZE PAYLOAD
+========================= */
+
 $phone     = $payload['phone'] ?? $payload['from'] ?? '';
 $message   = $payload['message'] ?? $payload['text'] ?? '';
-$sessionId = $payload['sessionId'] ?? $payload['session_id'] ?? '';
 $type      = $payload['type'] ?? 'text';
+$fromMe    = $payload['fromMe'] ?? false;
 
-// Hapus suffix @s.whatsapp.net atau @g.us
+// hapus suffix WA
 $phone = preg_replace('/@.+$/', '', $phone);
 
-// Hanya proses pesan teks yang masuk (bukan yang dikirim sendiri)
+/* =========================
+   FILTER EVENT
+========================= */
+
+// ignore pesan dari sistem sendiri
+if ($fromMe) {
+    echo json_encode(['status' => 'ok', 'note' => 'from self']);
+    exit;
+}
+
 if (empty($phone) || empty($message) || $type !== 'text') {
     echo json_encode(['status' => 'ok', 'note' => 'ignored']);
     exit;
 }
 
-// Cek apakah nomor terdaftar di sistem
+/* =========================
+   CEK NOMOR TERDAFTAR
+========================= */
+
 $db = getDb();
-$stmt = $db->prepare("SELECT * FROM numbers WHERE phone = ? AND active = 1");
+
+$stmt = $db->prepare("
+SELECT *
+FROM numbers
+WHERE phone = ?
+AND active = 1
+AND (
+    paused_until IS NULL
+    OR paused_until < datetime('now')
+)
+");
+
 $stmt->execute([$phone]);
+
 $number = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$number) {
+
     echo json_encode(['status' => 'ok', 'note' => 'number not registered']);
+
     exit;
 }
 
-// Log pesan masuk
+/* =========================
+   LOG PESAN MASUK
+========================= */
+
 logMessage($phone, 'system', $message, 'in', 'received', '');
 
-// Jeda sebelum membalas
-sleep(20);
+/* =========================
+   DELAY BALASAN (NATURAL)
+========================= */
 
-// Generate balasan acak
+sleep(rand(10,30));
+
+/* =========================
+   GENERATE BALASAN
+========================= */
+
 $reply = generateRandomText($number['name'] ?? '');
 
-// Tentukan token untuk membalas (pakai token nomor penerima asli, yaitu nomor yang dikirim pesan oleh sistem)
-$replyToken = !empty($number['token']) ? $number['token'] : getSetting('default_token');
+/* =========================
+   TOKEN
+========================= */
+
+$replyToken = !empty($number['token'])
+    ? $number['token']
+    : getSetting('default_token');
 
 if (empty($replyToken)) {
-    echo json_encode(['status' => 'ok', 'note' => 'no token configured for reply']);
+
+    echo json_encode([
+        'status' => 'ok',
+        'note' => 'no token configured'
+    ]);
+
     exit;
 }
 
-// Kirim balasan
+/* =========================
+   KIRIM BALASAN
+========================= */
+
 $url = WA_GATEWAY_URL . '/api/send-message';
-$refId = 'wato-reply-' . time() . '-' . $phone;
+
+$refId = 'wato-reply-' . uniqid();
 
 $postData = http_build_query([
     'phone'   => $phone,
@@ -69,6 +121,7 @@ $postData = http_build_query([
 ]);
 
 $ch = curl_init($url);
+
 curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_POST           => true,
@@ -83,11 +136,22 @@ curl_setopt_array($ch, [
 
 $response = curl_exec($ch);
 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
 curl_close($ch);
 
-$data   = json_decode($response, true);
-$status = ($httpCode === 200 && isset($data['status']) && $data['status'] === true) ? 'sent' : 'failed';
+$data = json_decode($response, true);
+
+$status = ($httpCode === 200 && isset($data['status']) && $data['status'] === true)
+    ? 'sent'
+    : 'failed';
+
+/* =========================
+   LOG BALASAN
+========================= */
 
 logMessage('system', $phone, $reply, 'out', $status, $refId);
 
-echo json_encode(['status' => 'ok', 'reply' => $status]);
+echo json_encode([
+    'status' => 'ok',
+    'reply' => $status
+]);

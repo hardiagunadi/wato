@@ -1,47 +1,119 @@
 <?php
 
 function generateRandomText(string $name = ''): string {
-    $greeting = $name ? "Halo $name" : 'Halo';
 
-    $templates = [
-        // Sapaan & kabar
-        "$greeting! Sudah makan belum hari ini? Jangan sampai lupa makan ya 😊",
-        "$greeting! Bagaimana kabarnya hari ini? Semoga sehat selalu!",
-        "$greeting! Lagi sibuk apa sekarang? Semoga harimu menyenangkan 🌟",
-        "$greeting! Sudah minum air putih belum? Jaga kesehatan ya!",
-        "$greeting! Kabar baik nih, semoga harimu penuh semangat! 💪",
-
-        // Motivasi
-        "Semangat pagi! Setiap hari adalah kesempatan baru untuk menjadi lebih baik. 🌅",
-        "Ingat, setiap langkah kecil tetap membawa kamu lebih dekat ke tujuan. Terus maju! 🚀",
-        "Hari ini adalah hari yang tepat untuk melakukan hal-hal luar biasa! 🌟",
-        "Jangan menyerah! Yang terbaik selalu butuh waktu dan proses. ✨",
-        "Senyum dulu, hari ini pasti bisa dilewati dengan baik! 😄",
-
-        // Pertanyaan ringan
-        "Hei! Kamu sedang dengarkan lagu apa sekarang? Atau lagi sepi-sepian? 🎵",
-        "Btw, sudah makan siang belum? Rekomendasiin dong makanan enak hari ini! 🍱",
-        "Weekend kemarin seru nggak? Ada cerita menarik? 😄",
-        "Lagi mood minum kopi atau teh hari ini? ☕🍵",
-        "Sudah olahraga hari ini? Kalau belum, yuk gerak dikit! 🏃",
-
-        // Fakta & info ringan
-        randomFact(),
+    $greetings = [
+        "Halo",
+        "Hai",
+        "Hi",
+        "Pagi",
+        "Selamat pagi",
+        "Siang",
+        "Sore",
+        "Malam",
     ];
 
-    return $templates[array_rand($templates)];
+    $openers = [
+        "lagi apa sekarang",
+        "gimana kabarnya hari ini",
+        "semoga harinya berjalan lancar",
+        "semoga sehat selalu",
+        "hari ini sibuk tidak",
+        "lagi santai atau kerja",
+        "semoga semuanya baik",
+        "hari ini cuacanya bagaimana",
+        "semoga hari ini menyenangkan",
+    ];
+
+    $questions = [
+        "sudah makan belum",
+        "lagi di rumah atau di luar",
+        "lagi fokus kerja ya",
+        "hari ini banyak kegiatan",
+        "lagi ngopi atau teh",
+        "lagi denger musik juga",
+        "lagi istirahat sebentar mungkin",
+    ];
+
+    $closings = [
+        "semangat ya hari ini",
+        "jangan lupa istirahat juga",
+        "jaga kesehatan ya",
+        "semoga semua urusan lancar",
+        "semoga harinya menyenangkan",
+        "semoga hari ini produktif",
+        "mudah mudahan semua lancar",
+        "tetap semangat jalani hari",
+    ];
+
+    $connectors = [
+        "",
+        "btw",
+        "oh iya",
+        "hmm",
+        "ngomong ngomong",
+        "eh iya",
+    ];
+
+    $emoji = [
+        "",
+        "",
+        "",
+        "🙂",
+        "😊",
+        "😄",
+        "👍",
+        "✨",
+        "🙏"
+    ];
+
+    $greet = $greetings[array_rand($greetings)];
+
+    if ($name) {
+        $greet .= " $name";
+    }
+
+    $parts = [];
+
+    $parts[] = $greet;
+    $parts[] = $openers[array_rand($openers)];
+    $parts[] = $questions[array_rand($questions)];
+    $parts[] = $closings[array_rand($closings)];
+
+    if (rand(0,3) === 1) {
+        $parts[] = $connectors[array_rand($connectors)] . " " . randomFact();
+    }
+
+    shuffle($parts);
+
+    $text = implode(", ", array_filter($parts));
+
+    // typo natural kecil (kadang saja)
+    if (rand(0,8) === 2) {
+        $text = str_replace("tidak", "ga", $text);
+    }
+
+    if (rand(0,8) === 3) {
+        $text = str_replace("sudah", "udah", $text);
+    }
+
+    return ucfirst($text) . " " . $emoji[array_rand($emoji)];
 }
 
+
 function randomFact(): string {
+
     $facts = [
-        "Tahukah kamu? Tersenyum selama 20 detik bisa meningkatkan mood secara signifikan! 😊 Coba sekarang!",
-        "Fakta menarik: Minum segelas air putih di pagi hari membantu metabolisme tubuh bekerja lebih baik. 💧",
-        "Did you know? Mendengarkan musik favorit bisa meningkatkan produktivitas kerja hingga 15%. 🎵",
-        "Info: Tidur siang singkat 20 menit lebih efektif memulihkan energi daripada tidur lebih lama. 😴",
-        "Tahukah kamu? Tertawa selama 10 menit setara dengan olahraga ringan bagi jantungmu. 😂❤️",
-        "Fakta: Tanaman di ruangan bisa mengurangi stres dan meningkatkan konsentrasi. Punya tanaman hias? 🌿",
-        "Tips hari ini: Istirahat 5 menit setiap jam kerja terbukti meningkatkan fokus dan produktivitas! ⏰",
-        "Tahukah kamu? Mengucapkan terima kasih secara rutin terbukti membuat orang lebih bahagia. Makasih ya sudah ada! 🙏",
+        "katanya minum air putih pagi hari bagus buat metabolisme tubuh",
+        "katanya denger musik favorit bisa bikin kerja lebih fokus",
+        "ternyata jalan kaki sebentar bisa bantu refresh pikiran",
+        "istirahat 5 menit kadang bikin kerja lebih produktif",
+        "tersenyum sebentar juga bisa bikin mood lebih baik",
+        "tanaman di ruangan kerja katanya bisa bikin lebih rileks",
+        "tidur siang sebentar kadang bikin energi balik lagi",
+        "minum air cukup itu penting juga buat fokus kerja",
+        "katanya udara pagi bagus buat pikiran lebih fresh",
+        "kadang stretching sebentar juga bagus buat badan",
     ];
 
     return $facts[array_rand($facts)];
