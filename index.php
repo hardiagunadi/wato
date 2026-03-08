@@ -75,7 +75,7 @@ $message = '';
 $msgType = 'success';
 
 if ($action === 'save_settings') {
-    setSetting('default_session_id', trim($_POST['default_session_id'] ?? ''));
+    setSetting('default_token', trim($_POST['default_token'] ?? ''));
     setSetting('webhook_url', trim($_POST['webhook_url'] ?? ''));
     $message = 'Pengaturan berhasil disimpan.';
 }
@@ -83,13 +83,13 @@ if ($action === 'save_settings') {
 if ($action === 'add_number') {
     $phone = preg_replace('/\D/', '', trim($_POST['phone'] ?? ''));
     $name  = trim($_POST['name'] ?? '');
-    $sess  = trim($_POST['session_id'] ?? '');
+    $token = trim($_POST['token'] ?? '');
 
     if ($phone) {
         try {
             $db = getDb();
-            $stmt = $db->prepare("INSERT OR IGNORE INTO numbers (phone, name, session_id) VALUES (?, ?, ?)");
-            $stmt->execute([$phone, $name, $sess ?: null]);
+            $stmt = $db->prepare("INSERT OR IGNORE INTO numbers (phone, name, token) VALUES (?, ?, ?)");
+            $stmt->execute([$phone, $name, $token ?: null]);
             $message = "Nomor $phone berhasil ditambahkan.";
         } catch (Exception $e) {
             $message = 'Gagal menambahkan: ' . $e->getMessage();
@@ -126,10 +126,10 @@ if ($action === 'send_now') {
 
 // ---- Fetch data ----
 
-$numbers = getDb()->query("SELECT * FROM numbers ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
-$logs    = getRecentLogs(50);
-$defaultSession = getSetting('default_session_id');
-$webhookUrl     = getSetting('webhook_url');
+$numbers      = getDb()->query("SELECT * FROM numbers ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+$logs         = getRecentLogs(50);
+$defaultToken = getSetting('default_token');
+$webhookUrl   = getSetting('webhook_url');
 
 // ---- Gateway status ----
 $gatewayOk = false;
@@ -139,23 +139,6 @@ $resp = curl_exec($ch);
 $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 $gatewayOk = ($code === 200);
-
-// ---- Available sessions ----
-$sessions = [];
-$ch = curl_init(WA_GATEWAY_URL . '/api/device/info');
-curl_setopt_array($ch, [
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_TIMEOUT => 5,
-    CURLOPT_HTTPHEADER => ['key: ' . WA_GATEWAY_KEY],
-]);
-$resp = curl_exec($ch);
-curl_close($ch);
-$devData = json_decode($resp, true);
-if (isset($devData['data']) && is_array($devData['data'])) {
-    $sessions = $devData['data'];
-} elseif (isset($devData['status']) && is_array($devData['status'])) {
-    $sessions = $devData['status'];
-}
 
 ?>
 <!DOCTYPE html>
@@ -238,23 +221,9 @@ tr:hover td { background: #f8fafc; }
     <form method="POST">
       <input type="hidden" name="action" value="save_settings">
       <div class="row">
-        <label>Session Aktif (Default)</label>
-        <?php if ($sessions): ?>
-        <select name="default_session_id">
-          <option value="">-- Pilih session --</option>
-          <?php foreach ($sessions as $s):
-            $sid = $s['sessionId'] ?? $s['id'] ?? $s['session_id'] ?? '';
-            $status = $s['status'] ?? '';
-          ?>
-          <option value="<?= htmlspecialchars($sid) ?>" <?= $defaultSession === $sid ? 'selected' : '' ?>>
-            <?= htmlspecialchars($sid) ?> (<?= htmlspecialchars($status) ?>)
-          </option>
-          <?php endforeach; ?>
-        </select>
-        <?php else: ?>
-        <input type="text" name="default_session_id" value="<?= htmlspecialchars($defaultSession) ?>" placeholder="Contoh: my-session">
-        <small style="color:#64748b; font-size:0.75rem;">Isi manual karena gateway tidak bisa diakses atau belum ada session.</small>
-        <?php endif; ?>
+        <label>Token Default (untuk nomor yang tidak punya token sendiri)</label>
+        <input type="text" name="default_token" value="<?= htmlspecialchars($defaultToken) ?>" placeholder="Token dari WA Gateway">
+        <small style="color:#64748b; font-size:0.75rem;">Token didapat dari panel WA Gateway saat mendaftarkan device.</small>
       </div>
       <div class="row">
         <label>Webhook URL (URL publik ke webhook.php)</label>
@@ -293,14 +262,14 @@ tr:hover td { background: #f8fafc; }
       <?php if ($numbers): ?>
       <table>
         <thead>
-          <tr><th>Nomor</th><th>Nama</th><th>Session</th><th>Status</th><th>Aksi</th></tr>
+          <tr><th>Nomor</th><th>Nama</th><th>Token</th><th>Status</th><th>Aksi</th></tr>
         </thead>
         <tbody>
         <?php foreach ($numbers as $num): ?>
         <tr>
           <td class="mono"><?= htmlspecialchars($num['phone']) ?></td>
           <td><?= htmlspecialchars($num['name'] ?? '-') ?></td>
-          <td class="mono" style="font-size:0.7rem;"><?= htmlspecialchars($num['session_id'] ?? 'default') ?></td>
+          <td class="mono" style="font-size:0.7rem;"><?= $num['token'] ? '✓ ada' : '<span style="color:#dc2626">-</span>' ?></td>
           <td>
             <span class="pill <?= $num['active'] ? 'pill-active' : 'pill-inactive' ?>">
               <?= $num['active'] ? 'Aktif' : 'Nonaktif' ?>
@@ -341,8 +310,8 @@ tr:hover td { background: #f8fafc; }
           <input type="text" name="name" placeholder="Nama kontak">
         </div>
         <div class="row">
-          <label>Session ID (kosong = pakai default)</label>
-          <input type="text" name="session_id" placeholder="<?= htmlspecialchars($defaultSession ?: 'default') ?>">
+          <label>Token (kosong = pakai token default)</label>
+          <input type="text" name="token" placeholder="Token dari WA Gateway">
         </div>
         <button type="submit" class="btn btn-primary">Tambah</button>
       </form>

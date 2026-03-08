@@ -15,6 +15,7 @@ function getDb(): PDO {
             phone VARCHAR(20) UNIQUE NOT NULL,
             name VARCHAR(100),
             session_id VARCHAR(100),
+            token VARCHAR(200),
             active INTEGER DEFAULT 1,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
@@ -35,6 +36,12 @@ function getDb(): PDO {
             value TEXT
         );
     ");
+
+    // Migrate: tambah kolom token jika belum ada
+    $cols = array_column($db->query("PRAGMA table_info(numbers)")->fetchAll(PDO::FETCH_ASSOC), 'name');
+    if (!in_array('token', $cols)) {
+        $db->exec("ALTER TABLE numbers ADD COLUMN token VARCHAR(200)");
+    }
 
     return $db;
 }

@@ -46,11 +46,11 @@ logMessage($phone, 'system', $message, 'in', 'received', '');
 // Generate balasan acak
 $reply = generateRandomText($number['name'] ?? '');
 
-// Tentukan session untuk membalas
-$replySession = !empty($number['session_id']) ? $number['session_id'] : getSetting('default_session_id');
+// Tentukan token untuk membalas (pakai token nomor penerima asli, yaitu nomor yang dikirim pesan oleh sistem)
+$replyToken = !empty($number['token']) ? $number['token'] : getSetting('default_token');
 
-if (empty($replySession)) {
-    echo json_encode(['status' => 'ok', 'note' => 'no session configured for reply']);
+if (empty($replyToken)) {
+    echo json_encode(['status' => 'ok', 'note' => 'no token configured for reply']);
     exit;
 }
 
@@ -63,7 +63,6 @@ $postData = http_build_query([
     'message' => $reply,
     'isGroup' => 'false',
     'ref_id'  => $refId,
-    'session' => $replySession,
 ]);
 
 $ch = curl_init($url);
@@ -73,6 +72,7 @@ curl_setopt_array($ch, [
     CURLOPT_POSTFIELDS     => $postData,
     CURLOPT_HTTPHEADER     => [
         'key: ' . WA_GATEWAY_KEY,
+        'Authorization: ' . $replyToken,
         'Content-Type: application/x-www-form-urlencoded',
     ],
     CURLOPT_TIMEOUT        => 15,

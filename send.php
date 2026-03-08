@@ -4,14 +4,13 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/generate.php';
 
-function sendWaMessage(string $sessionId, string $toPhone, string $message, string $refId): array {
+function sendWaMessage(string $token, string $toPhone, string $message, string $refId): array {
     $url = WA_GATEWAY_URL . '/api/send-message';
     $payload = http_build_query([
         'phone'   => $toPhone,
         'message' => $message,
         'isGroup' => 'false',
         'ref_id'  => $refId,
-        'session' => $sessionId,
     ]);
 
     $ch = curl_init($url);
@@ -21,6 +20,7 @@ function sendWaMessage(string $sessionId, string $toPhone, string $message, stri
         CURLOPT_POSTFIELDS     => $payload,
         CURLOPT_HTTPHEADER     => [
             'key: ' . WA_GATEWAY_KEY,
+            'Authorization: ' . $token,
             'Content-Type: application/x-www-form-urlencoded',
         ],
         CURLOPT_TIMEOUT        => 15,
@@ -57,10 +57,10 @@ if (count($numbers) < 2) {
     exit(0);
 }
 
-$defaultSession = getSetting('default_session_id');
+$defaultToken = getSetting('default_token');
 
-if (empty($defaultSession)) {
-    log_out("PERINGATAN: default_session_id belum dikonfigurasi di Settings dashboard.");
+if (empty($defaultToken)) {
+    log_out("PERINGATAN: default_token belum dikonfigurasi di Settings dashboard.");
 }
 
 $timestamp = time();
@@ -70,10 +70,10 @@ $failed = 0;
 log_out("Mulai pengiriman peer-to-peer untuk " . count($numbers) . " nomor.");
 
 foreach ($numbers as $from) {
-    $sessionId = !empty($from['session_id']) ? $from['session_id'] : $defaultSession;
+    $token = !empty($from['token']) ? $from['token'] : getSetting('default_token');
 
-    if (empty($sessionId)) {
-        log_out("SKIP {$from['phone']}: tidak ada session.");
+    if (empty($token)) {
+        log_out("SKIP {$from['phone']}: tidak ada token.");
         continue;
     }
 
@@ -83,7 +83,7 @@ foreach ($numbers as $from) {
         $message = generateRandomText($to['name'] ?? '');
         $refId   = "wato-{$timestamp}-{$from['phone']}-{$to['phone']}";
 
-        $result = sendWaMessage($sessionId, $to['phone'], $message, $refId);
+        $result = sendWaMessage($token, $to['phone'], $message, $refId);
         $status = $result['success'] ? 'sent' : 'failed';
 
         logMessage($from['phone'], $to['phone'], $message, 'out', $status, $refId);
