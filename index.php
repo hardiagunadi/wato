@@ -124,6 +124,33 @@ if ($action === 'send_now') {
     $message = "Pengiriman selesai:\n" . htmlspecialchars($output);
 }
 
+define('CRON_FILE', '/etc/cron.d/wato');
+define('CRON_LINE', '*/30 * * * * www-data /usr/bin/php ' . __DIR__ . '/send.php >> ' . __DIR__ . '/cron.log 2>&1');
+
+function isCronInstalled(): bool {
+    return file_exists(CRON_FILE);
+}
+
+if ($action === 'install_cron') {
+    $content = "# WATO - cek tiap 30 menit, interval acak: 30m/1j/2j/5j\n" . CRON_LINE . "\n";
+    if (file_put_contents(CRON_FILE, $content) !== false) {
+        chmod(CRON_FILE, 0644);
+        $message = 'Cron job berhasil dipasang di ' . CRON_FILE;
+    } else {
+        $message = 'Gagal menulis ' . CRON_FILE . '. Jalankan: sudo chmod 666 /etc/cron.d/wato';
+        $msgType = 'error';
+    }
+}
+
+if ($action === 'remove_cron') {
+    if (file_exists(CRON_FILE) && unlink(CRON_FILE)) {
+        $message = 'Cron job berhasil dihapus.';
+    } else {
+        $message = 'Gagal menghapus ' . CRON_FILE . '. Jalankan: sudo rm /etc/cron.d/wato';
+        $msgType = 'error';
+    }
+}
+
 // ---- Fetch data ----
 
 $numbers      = getDb()->query("SELECT * FROM numbers ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
@@ -263,10 +290,29 @@ tr:hover td { background: #f8fafc; }
       <button type="submit" class="btn btn-green">Kirim Sekarang</button>
     </form>
     <hr style="margin:16px 0; border:none; border-top:1px solid #e2e8f0;">
-    <p style="font-size:0.8rem; color:#475569;">
-      <strong>Cron job (cek tiap 30 menit):</strong><br>
-      <code class="mono">*/30 * * * * www-data php <?= __DIR__ ?>/send.php</code>
+    <?php $cronOk = isCronInstalled(); ?>
+    <p style="font-size:0.8rem; font-weight:600; color:#475569; margin-bottom:6px;">
+      Cron Job &nbsp;
+      <span class="pill <?= $cronOk ? 'pill-active' : 'pill-inactive' ?>">
+        <?= $cronOk ? 'Terpasang' : 'Tidak Terpasang' ?>
+      </span>
     </p>
+    <p style="font-size:0.75rem; color:#64748b; margin-bottom:10px; font-family:monospace; word-break:break-all;">
+      <?= htmlspecialchars(CRON_LINE) ?>
+    </p>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <?php if (!$cronOk): ?>
+      <form method="POST" style="margin:0;">
+        <input type="hidden" name="action" value="install_cron">
+        <button type="submit" class="btn btn-primary btn-sm">Pasang Cron</button>
+      </form>
+      <?php else: ?>
+      <form method="POST" style="margin:0;" onsubmit="return confirm('Hapus cron job WATO?')">
+        <input type="hidden" name="action" value="remove_cron">
+        <button type="submit" class="btn btn-danger btn-sm">Hapus Cron</button>
+      </form>
+      <?php endif; ?>
+    </div>
   </div>
 
 </div>
