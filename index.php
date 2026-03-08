@@ -125,30 +125,9 @@ if ($action === 'send_now') {
 }
 
 define('CRON_FILE', '/etc/cron.d/wato');
-define('CRON_LINE', '*/30 * * * * www-data /usr/bin/php ' . __DIR__ . '/send.php >> ' . __DIR__ . '/cron.log 2>&1');
 
 function isCronInstalled(): bool {
     return file_exists(CRON_FILE);
-}
-
-if ($action === 'install_cron') {
-    $content = "# WATO - cek tiap 30 menit, interval acak: 30m/1j/2j/5j\n" . CRON_LINE . "\n";
-    if (file_put_contents(CRON_FILE, $content) !== false) {
-        chmod(CRON_FILE, 0644);
-        $message = 'Cron job berhasil dipasang di ' . CRON_FILE;
-    } else {
-        $message = 'Gagal menulis ' . CRON_FILE . '. Jalankan: sudo chmod 666 /etc/cron.d/wato';
-        $msgType = 'error';
-    }
-}
-
-if ($action === 'remove_cron') {
-    if (file_exists(CRON_FILE) && unlink(CRON_FILE)) {
-        $message = 'Cron job berhasil dihapus.';
-    } else {
-        $message = 'Gagal menghapus ' . CRON_FILE . '. Jalankan: sudo rm /etc/cron.d/wato';
-        $msgType = 'error';
-    }
 }
 
 // ---- Fetch data ----
@@ -291,28 +270,21 @@ tr:hover td { background: #f8fafc; }
     </form>
     <hr style="margin:16px 0; border:none; border-top:1px solid #e2e8f0;">
     <?php $cronOk = isCronInstalled(); ?>
-    <p style="font-size:0.8rem; font-weight:600; color:#475569; margin-bottom:6px;">
+    <p style="font-size:0.8rem; font-weight:600; color:#475569; margin-bottom:8px;">
       Cron Job &nbsp;
       <span class="pill <?= $cronOk ? 'pill-active' : 'pill-inactive' ?>">
         <?= $cronOk ? 'Terpasang' : 'Tidak Terpasang' ?>
       </span>
     </p>
-    <p style="font-size:0.75rem; color:#64748b; margin-bottom:10px; font-family:monospace; word-break:break-all;">
-      <?= htmlspecialchars(CRON_LINE) ?>
-    </p>
-    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-      <?php if (!$cronOk): ?>
-      <form method="POST" style="margin:0;">
-        <input type="hidden" name="action" value="install_cron">
-        <button type="submit" class="btn btn-primary btn-sm">Pasang Cron</button>
-      </form>
-      <?php else: ?>
-      <form method="POST" style="margin:0;" onsubmit="return confirm('Hapus cron job WATO?')">
-        <input type="hidden" name="action" value="remove_cron">
-        <button type="submit" class="btn btn-danger btn-sm">Hapus Cron</button>
-      </form>
-      <?php endif; ?>
-    </div>
+    <p style="font-size:0.75rem; color:#64748b; margin-bottom:6px;"><strong>Pasang:</strong></p>
+    <pre id="cron-install" style="background:#1e293b;color:#e2e8f0;padding:10px;border-radius:6px;font-size:0.7rem;overflow-x:auto;margin-bottom:6px;">sudo tee /etc/cron.d/wato &lt;&lt; 'EOF'
+# Wato cron job
+*/30 * * * * www-data /usr/bin/php <?= __DIR__ ?>/send.php >> /var/log/wato.log 2>&1
+EOF</pre>
+    <button onclick="navigator.clipboard.writeText('sudo tee /etc/cron.d/wato &lt;&lt; \'EOF\'\n# Wato cron job\n*/30 * * * * www-data /usr/bin/php <?= __DIR__ ?>/send.php >> /var/log/wato.log 2>&1\nEOF')" class="btn btn-gray btn-sm" style="margin-bottom:10px;">Salin Perintah Pasang</button>
+    <p style="font-size:0.75rem; color:#64748b; margin-bottom:6px;"><strong>Hapus:</strong></p>
+    <pre style="background:#1e293b;color:#e2e8f0;padding:10px;border-radius:6px;font-size:0.7rem;overflow-x:auto;margin-bottom:6px;">sudo rm /etc/cron.d/wato</pre>
+    <button onclick="navigator.clipboard.writeText('sudo rm /etc/cron.d/wato')" class="btn btn-gray btn-sm">Salin Perintah Hapus</button>
   </div>
 
 </div>
