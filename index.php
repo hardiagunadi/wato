@@ -2,45 +2,117 @@
 
 session_start();
 
-// ---- Auth ----
+/* =========================
+   AUTH
+========================= */
+
 define('AUTH_USER', 'wato');
 define('AUTH_PASS', 'wato');
 
 if (isset($_POST['action']) && $_POST['action'] === 'login') {
+
     if ($_POST['username'] === AUTH_USER && $_POST['password'] === AUTH_PASS) {
+
         $_SESSION['logged_in'] = true;
+
     } else {
+
         $loginError = 'Username atau password salah.';
     }
 }
 
 if (isset($_POST['action']) && $_POST['action'] === 'logout') {
+
     session_destroy();
+
     header('Location: /');
+
     exit;
 }
 
 if (empty($_SESSION['logged_in'])) {
+
     $loginError = $loginError ?? '';
+
 ?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WATO - Login</title>
+
+<style>
+
+body{
+font-family:system-ui;
+background:#f1f5f9;
+display:flex;
+align-items:center;
+justify-content:center;
+height:100vh;
+}
+
+.box{
+background:white;
+padding:30px;
+border-radius:10px;
+box-shadow:0 4px 12px rgba(0,0,0,.1);
+}
+
+input{
+display:block;
+margin-bottom:10px;
+padding:8px;
+width:200px;
+}
+
+button{
+padding:8px 16px;
+}
+
+.err{
+color:red;
+margin-bottom:10px;
+}
+
+</style>
+
 </head>
+
 <body>
+
+<div class="box">
+
+<h2>WATO Login</h2>
+
+<?php if ($loginError): ?>
+<div class="err"><?= htmlspecialchars($loginError) ?></div>
+<?php endif; ?>
+
 <form method="POST">
+
 <input type="hidden" name="action" value="login">
-<input name="username" placeholder="username">
-<input name="password" type="password" placeholder="password">
+
+<input name="username" placeholder="Username">
+
+<input type="password" name="password" placeholder="Password">
+
 <button>Login</button>
+
 </form>
+
+</div>
+
 </body>
 </html>
 <?php
 exit;
 }
+
+/* =========================
+   LOAD CONFIG
+========================= */
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
@@ -57,7 +129,7 @@ function getNumberHealth(string $phone): string {
         SELECT COUNT(*) as failed
         FROM message_log
         WHERE from_phone = ?
-        AND status = 'failed'
+        AND status='failed'
         AND sent_at >= datetime('now','-1 hour')
     ");
 
@@ -65,13 +137,9 @@ function getNumberHealth(string $phone): string {
 
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($row['failed'] >= 5) {
-        return 'paused';
-    }
+    if ($row['failed'] >= 5) return 'paused';
 
-    if ($row['failed'] >= 2) {
-        return 'warning';
-    }
+    if ($row['failed'] >= 2) return 'warning';
 
     return 'healthy';
 }
@@ -80,14 +148,9 @@ function getNumberHealth(string $phone): string {
    HANDLE POST
 ========================= */
 
-$action  = $_POST['action'] ?? '';
-$message = '';
+$action = $_POST['action'] ?? '';
 
-if ($action === 'save_settings') {
-    setSetting('default_token', trim($_POST['default_token'] ?? ''));
-    setSetting('webhook_url', trim($_POST['webhook_url'] ?? ''));
-    $message = 'Pengaturan berhasil disimpan.';
-}
+$message = '';
 
 if ($action === 'add_number') {
 
@@ -106,7 +169,7 @@ if ($action === 'add_number') {
 
         $stmt->execute([$phone,$name,$token ?: null]);
 
-        $message = "Nomor $phone ditambahkan.";
+        $message = "Nomor $phone berhasil ditambahkan.";
     }
 }
 
@@ -136,7 +199,7 @@ if ($action === 'send_now') {
 
     ob_start();
 
-    passthru('php ' . escapeshellarg(__DIR__.'/send.php') . ' --force 2>&1');
+    passthru('php ' . escapeshellarg(__DIR__.'/send.php') . ' --force');
 
     $message = ob_get_clean();
 }
@@ -151,22 +214,19 @@ SELECT * FROM numbers ORDER BY name
 
 $logs = getRecentLogs(50);
 
-$defaultToken = getSetting('default_token');
-$webhookUrl   = getSetting('webhook_url');
-
 ?>
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<title>WATO</title>
+<title>WATO Dashboard</title>
 
 <style>
 
 body{
 font-family:system-ui;
 background:#f1f5f9;
-padding:20px;
+padding:30px;
 }
 
 table{
@@ -177,6 +237,10 @@ width:100%;
 th,td{
 padding:8px;
 border-bottom:1px solid #ddd;
+}
+
+button{
+padding:4px 10px;
 }
 
 .pill{
@@ -204,8 +268,15 @@ color:#991b1b;
 
 <h1>WATO Dashboard</h1>
 
+<form method="POST">
+<input type="hidden" name="action" value="logout">
+<button>Logout</button>
+</form>
+
 <?php if ($message): ?>
+
 <p><?= htmlspecialchars($message) ?></p>
+
 <?php endif; ?>
 
 <h2>Tambah Nomor</h2>
@@ -229,13 +300,17 @@ color:#991b1b;
 <table>
 
 <thead>
+
 <tr>
+
 <th>Nomor</th>
 <th>Nama</th>
 <th>Status</th>
 <th>Kesehatan</th>
 <th>Aksi</th>
+
 </tr>
+
 </thead>
 
 <tbody>
@@ -251,9 +326,13 @@ color:#991b1b;
 <td><?= htmlspecialchars($num['name']) ?></td>
 
 <td>
+
 <span class="pill <?= $num['active'] ? 'pill-active':'pill-inactive' ?>">
+
 <?= $num['active'] ? 'Aktif':'Nonaktif' ?>
+
 </span>
+
 </td>
 
 <td>
@@ -277,15 +356,23 @@ color:#991b1b;
 <td>
 
 <form method="POST" style="display:inline">
+
 <input type="hidden" name="action" value="toggle_number">
+
 <input type="hidden" name="id" value="<?= $num['id'] ?>">
+
 <button>Toggle</button>
+
 </form>
 
 <form method="POST" style="display:inline">
+
 <input type="hidden" name="action" value="delete_number">
+
 <input type="hidden" name="id" value="<?= $num['id'] ?>">
+
 <button>Hapus</button>
+
 </form>
 
 </td>
@@ -303,19 +390,26 @@ color:#991b1b;
 <table>
 
 <tr>
+
 <th>Waktu</th>
 <th>Dari</th>
 <th>Ke</th>
 <th>Status</th>
+
 </tr>
 
 <?php foreach ($logs as $log): ?>
 
 <tr>
+
 <td><?= $log['sent_at'] ?></td>
+
 <td><?= $log['from_phone'] ?></td>
+
 <td><?= $log['to_phone'] ?></td>
+
 <td><?= $log['status'] ?></td>
+
 </tr>
 
 <?php endforeach; ?>
