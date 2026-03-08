@@ -1,5 +1,70 @@
 <?php
 
+session_start();
+
+// ---- Auth ----
+define('AUTH_USER', 'wato');
+define('AUTH_PASS', 'wato');
+
+if (isset($_POST['action']) && $_POST['action'] === 'login') {
+    if ($_POST['username'] === AUTH_USER && $_POST['password'] === AUTH_PASS) {
+        $_SESSION['logged_in'] = true;
+    } else {
+        $loginError = 'Username atau password salah.';
+    }
+}
+
+if (isset($_POST['action']) && $_POST['action'] === 'logout') {
+    session_destroy();
+    header('Location: /');
+    exit;
+}
+
+if (empty($_SESSION['logged_in'])) {
+    $loginError = $loginError ?? '';
+    ?>
+    <!DOCTYPE html>
+    <html lang="id">
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WATO - Login</title>
+    <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f1f5f9; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .box { background: #fff; border-radius: 12px; padding: 36px 32px; width: 100%; max-width: 360px; box-shadow: 0 4px 16px rgba(0,0,0,.1); }
+    h1 { font-size: 1.4rem; color: #1e40af; margin-bottom: 4px; }
+    .sub { font-size: 0.8rem; color: #64748b; margin-bottom: 24px; }
+    label { display: block; font-size: 0.8rem; font-weight: 600; color: #475569; margin-bottom: 4px; }
+    input { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; font-size: 0.875rem; margin-bottom: 14px; }
+    input:focus { outline: 2px solid #3b82f6; border-color: transparent; }
+    button { width: 100%; background: #1e40af; color: #fff; border: none; border-radius: 6px; padding: 10px; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+    button:hover { background: #1d3a9e; }
+    .err { background: #fee2e2; color: #991b1b; padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; margin-bottom: 14px; }
+    </style>
+    </head>
+    <body>
+    <div class="box">
+        <h1>WATO</h1>
+        <div class="sub">WA Auto Text Organizer</div>
+        <?php if ($loginError): ?>
+        <div class="err"><?= htmlspecialchars($loginError) ?></div>
+        <?php endif; ?>
+        <form method="POST">
+            <input type="hidden" name="action" value="login">
+            <label>Username</label>
+            <input type="text" name="username" autofocus autocomplete="username">
+            <label>Password</label>
+            <input type="password" name="password" autocomplete="current-password">
+            <button type="submit">Masuk</button>
+        </form>
+    </div>
+    </body>
+    </html>
+    <?php
+    exit;
+}
+
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
 
@@ -148,9 +213,13 @@ tr:hover td { background: #f8fafc; }
     <h1>WATO &mdash; WA Auto Text Organizer</h1>
     <div class="sub">Kirim pesan acak antar nomor terdaftar setiap 1 jam</div>
   </div>
-  <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+  <div style="margin-left:auto; display:flex; align-items:center; gap:12px;">
     <span>Gateway:</span>
     <span class="badge <?= $gatewayOk ? 'ok' : 'err' ?>"><?= $gatewayOk ? 'Online' : 'Offline' ?></span>
+    <form method="POST" style="margin:0;">
+      <input type="hidden" name="action" value="logout">
+      <button type="submit" style="background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.4); color:#fff; border-radius:6px; padding:4px 12px; font-size:0.8rem; cursor:pointer;">Logout</button>
+    </form>
   </div>
 </header>
 
