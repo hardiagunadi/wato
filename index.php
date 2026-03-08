@@ -119,7 +119,7 @@ if ($action === 'toggle_number') {
 
 if ($action === 'send_now') {
     ob_start();
-    passthru('php ' . escapeshellarg(__DIR__ . '/send.php') . ' 2>&1');
+    passthru('php ' . escapeshellarg(__DIR__ . '/send.php') . ' --force 2>&1');
     $output  = ob_get_clean();
     $message = "Pengiriman selesai:\n" . htmlspecialchars($output);
 }
@@ -236,8 +236,27 @@ tr:hover td { background: #f8fafc; }
   <!-- Kirim Sekarang -->
   <div class="card">
     <h2>Aksi Manual</h2>
-    <p style="font-size:0.875rem; color:#475569; margin-bottom:16px;">
-      Trigger pengiriman pesan sekarang (tidak menunggu jadwal cron). Setiap nomor aktif akan mengirim pesan ke semua nomor lainnya.
+    <?php
+      $nextSendAt = getSetting('next_send_at');
+      $nowTs = time();
+      if ($nextSendAt) {
+          $diff = (int)$nextSendAt - $nowTs;
+          if ($diff > 0) {
+              $sisaJam  = floor($diff / 3600);
+              $sisaMnt  = floor(($diff % 3600) / 60);
+              $nextLabel = date('H:i', (int)$nextSendAt) . " (sisa " . ($sisaJam ? "{$sisaJam}j " : "") . "{$sisaMnt}m)";
+          } else {
+              $nextLabel = 'Segera / Belum terjadwal';
+          }
+      } else {
+          $nextLabel = 'Belum ada jadwal (kirim sekarang untuk mulai)';
+      }
+    ?>
+    <p style="font-size:0.875rem; color:#475569; margin-bottom:8px;">
+      <strong>Jadwal berikutnya:</strong> <?= htmlspecialchars($nextLabel) ?>
+    </p>
+    <p style="font-size:0.8rem; color:#64748b; margin-bottom:16px;">
+      Interval acak: 30 menit / 1 jam / 2 jam / 5 jam
     </p>
     <form method="POST" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Mengirim...'">
       <input type="hidden" name="action" value="send_now">
@@ -245,8 +264,8 @@ tr:hover td { background: #f8fafc; }
     </form>
     <hr style="margin:16px 0; border:none; border-top:1px solid #e2e8f0;">
     <p style="font-size:0.8rem; color:#475569;">
-      <strong>Cron job:</strong><br>
-      <code class="mono">0 * * * * www-data php <?= __DIR__ ?>/send.php >> <?= __DIR__ ?>/cron.log 2&gt;&amp;1</code>
+      <strong>Cron job (cek tiap 30 menit):</strong><br>
+      <code class="mono">*/30 * * * * www-data php <?= __DIR__ ?>/send.php</code>
     </p>
   </div>
 

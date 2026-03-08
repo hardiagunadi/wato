@@ -48,6 +48,17 @@ function log_out(string $msg): void {
     echo "[$timestamp] $msg\n";
 }
 
+function getNextIntervalSeconds(): int {
+    // Pilih acak dari: 30 menit, 1 jam, 2 jam, 5 jam
+    $options = [30 * 60, 60 * 60, 2 * 60 * 60, 5 * 60 * 60];
+    return $options[array_rand($options)];
+}
+
+function intervalLabel(int $seconds): string {
+    if ($seconds < 3600) return ($seconds / 60) . ' menit';
+    return ($seconds / 3600) . ' jam';
+}
+
 // ---- Main ----
 
 $numbers = getActiveNumbers();
@@ -61,6 +72,21 @@ $defaultToken = getSetting('default_token');
 
 if (empty($defaultToken)) {
     log_out("PERINGATAN: default_token belum dikonfigurasi di Settings dashboard.");
+}
+
+// Cek jadwal: apakah sudah waktunya kirim?
+$force      = in_array('--force', $argv ?? []);
+$nextSendAt = getSetting('next_send_at');
+$now        = time();
+
+if (!$force && !empty($nextSendAt) && $now < (int)$nextSendAt) {
+    $sisaMenit = round(((int)$nextSendAt - $now) / 60);
+    log_out("Belum waktunya kirim. Jadwal berikutnya: " . date('Y-m-d H:i:s', (int)$nextSendAt) . " (sisa ~{$sisaMenit} menit). Keluar.");
+    exit(0);
+}
+
+if ($force) {
+    log_out("Mode --force: bypass cek jadwal.");
 }
 
 $timestamp = time();
@@ -102,4 +128,10 @@ foreach ($numbers as $from) {
     }
 }
 
+// Set jadwal pengiriman berikutnya secara acak
+$interval = getNextIntervalSeconds();
+$nextSend  = time() + $interval;
+setSetting('next_send_at', (string)$nextSend);
+
 log_out("Selesai. Terkirim: $sent, Gagal: $failed.");
+log_out("Jadwal pengiriman berikutnya: " . date('Y-m-d H:i:s', $nextSend) . " (+" . intervalLabel($interval) . ")");
