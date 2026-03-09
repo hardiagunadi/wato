@@ -146,6 +146,12 @@ function h($value): string {
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 }
 
+define('CRON_FILE', '/etc/cron.d/wato');
+
+function isCronInstalled(): bool {
+    return file_exists(CRON_FILE);
+}
+
 function getNumberHealth($phone): string {
     $db = getDb();
 
@@ -176,6 +182,7 @@ function getNumberHealth($phone): string {
 $action = $_POST['action'] ?? '';
 $message = '';
 $messageType = 'success';
+$manualSendOutput = '';
 
 if ($action === 'add_number') {
     $phone = preg_replace('/\D/', '', $_POST['phone'] ?? '');
@@ -250,10 +257,55 @@ if ($action === 'save_gateway_settings') {
     }
 }
 
+if ($action === 'send_now') {
+    $phpBinary = escapeshellarg(PHP_BINARY ?: 'php');
+    $scriptPath = escapeshellarg(__DIR__ . '/send.php');
+    $command = $phpBinary . ' ' . $scriptPath . ' --force 2>&1';
+
+    ob_start();
+    passthru($command, $exitCode);
+    $manualSendOutput = trim((string) ob_get_clean());
+
+    if ($manualSendOutput === '') {
+        $manualSendOutput = '(tidak ada output)';
+    }
+
+    if ($exitCode === 0) {
+        $message = 'Test kirim manual selesai dijalankan.';
+        $messageType = 'success';
+    } else {
+        $message = 'Test kirim manual selesai dengan error (exit code ' . $exitCode . ').';
+        $messageType = 'danger';
+    }
+}
+
 $numbers = getDb()->query('SELECT * FROM numbers ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
 $logs = getRecentLogs(50);
 $gatewayUrl = getSetting('wa_gateway_url', WA_GATEWAY_URL_DEFAULT);
 $gatewayKey = getSetting('wa_gateway_key', WA_GATEWAY_KEY_DEFAULT);
+$cronInstalled = isCronInstalled();
+$nextSendAt = (int) getSetting('next_send_at', '0');
+$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+$basePath = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/');
+$webhookLink = $scheme . '://' . $host . ($basePath !== '' ? $basePath : '') . '/webhook.php';
+
+if ($nextSendAt > 0) {
+    $remaining = $nextSendAt - time();
+
+    if ($remaining > 0) {
+        $remainingHours = (int) floor($remaining / 3600);
+        $remainingMinutes = (int) floor(($remaining % 3600) / 60);
+        $nextSendLabel = date('Y-m-d H:i:s', $nextSendAt) . ' (sisa ' . ($remainingHours > 0 ? $remainingHours . 'j ' : '') . $remainingMinutes . 'm)';
+    } else {
+        $nextSendLabel = 'Segera / Belum terjadwal ulang';
+    }
+} else {
+    $nextSendLabel = 'Belum ada jadwal (jalankan test manual untuk memulai)';
+}
+
+$cronInstallCmd = "sudo tee /etc/cron.d/wato << 'EOF'\n# WATO cron job\n*/30 * * * * www-data /usr/bin/php " . __DIR__ . "/send.php >> /var/log/wato.log 2>&1\nEOF";
+$cronRemoveCmd = "sudo rm -f /etc/cron.d/wato";
 
 $healthMap = [];
 $healthCount = [
@@ -506,6 +558,18 @@ foreach ($logs as $log) {
             font-weight: 500;
         }
 
+        .command-block {
+            background: #0f172a;
+            color: #dbeafe;
+            border-radius: 12px;
+            padding: 12px;
+            font-size: 0.78rem;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            word-break: break-word;
+            margin-bottom: 8px;
+        }
+
         @media (max-width: 992px) {
             .stats-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -605,6 +669,17 @@ foreach ($logs as $log) {
                     </button>
                 </div>
             </form>
+
+            <hr>
+            <p class="text-muted small mb-1">Link webhook (klik kolom atau tombol untuk salin):</p>
+            <div class="input-group">
+                <input class="form-control js-copy-input" value="<?= h($webhookLink) ?>" readonly data-command="<?= h($webhookLink) ?>">
+                <div class="input-group-append">
+                    <button type="button" class="btn btn-outline-secondary js-copy-command" data-command="<?= h($webhookLink) ?>">
+                        <i class="fas fa-copy mr-1"></i> Salin
+                    </button>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -638,6 +713,51 @@ foreach ($logs as $log) {
                     </button>
                 </div>
             </form>
+        </div>
+    </section>
+
+    <section class="content-card">
+        <div class="card-header">
+            <h2 class="card-title">Aksi Manual & Cron</h2>
+            <p class="card-subtitle">Jalankan test kirim manual, lihat jadwal berikutnya, dan copy command cron.</p>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-lg-5 mb-3 mb-lg-0">
+                    <p class="mb-1"><strong>Jadwal berikutnya:</strong> <?= h($nextSendLabel) ?></p>
+                    <p class="text-muted small mb-3">Interval acak di `send.php`: sekitar 20 menit sampai 6 jam.</p>
+                    <form method="POST" class="mb-0">
+                        <input type="hidden" name="action" value="send_now">
+                        <button class="btn btn-success js-send-now-btn" type="submit">
+                            <i class="fas fa-paper-plane mr-1"></i> Test Kirim Manual
+                        </button>
+                    </form>
+                </div>
+                <div class="col-lg-7">
+                    <p class="mb-1">
+                        <strong>Status Cron:</strong>
+                        <?php if ($cronInstalled) { ?>
+                            <span class="badge badge-success">Terpasang</span>
+                        <?php } else { ?>
+                            <span class="badge badge-danger">Tidak Terpasang</span>
+                        <?php } ?>
+                    </p>
+
+                    <p class="text-muted small mb-1">Pasang cron:</p>
+                    <pre class="command-block"><?= h($cronInstallCmd) ?></pre>
+                    <button type="button" class="btn btn-outline-secondary btn-sm js-copy-command mb-3" data-command="<?= h($cronInstallCmd) ?>">Salin Perintah Pasang</button>
+
+                    <p class="text-muted small mb-1">Hapus cron:</p>
+                    <pre class="command-block"><?= h($cronRemoveCmd) ?></pre>
+                    <button type="button" class="btn btn-outline-secondary btn-sm js-copy-command" data-command="<?= h($cronRemoveCmd) ?>">Salin Perintah Hapus</button>
+                </div>
+            </div>
+
+            <?php if ($manualSendOutput !== '') { ?>
+                <hr>
+                <p class="text-muted small mb-1">Output test manual terbaru:</p>
+                <pre class="command-block mb-0"><?= h($manualSendOutput) ?></pre>
+            <?php } ?>
         </div>
     </section>
 
@@ -807,6 +927,58 @@ foreach ($logs as $log) {
 
                     row.style.display = text.indexOf(keyword) !== -1 ? '' : 'none';
                 });
+            });
+        });
+
+        function copyText(text, done) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(done).catch(function () {});
+                return;
+            }
+
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            done();
+        }
+
+        document.querySelectorAll('.js-copy-command').forEach(function (button) {
+            button.addEventListener('click', function () {
+                var text = this.getAttribute('data-command') || '';
+                var currentButton = this;
+                var original = currentButton.innerHTML;
+
+                copyText(text, function () {
+                    currentButton.innerHTML = 'Tersalin';
+                    currentButton.classList.remove('btn-outline-secondary');
+                    currentButton.classList.add('btn-success');
+
+                    setTimeout(function () {
+                        currentButton.innerHTML = original;
+                        currentButton.classList.remove('btn-success');
+                        currentButton.classList.add('btn-outline-secondary');
+                    }, 1800);
+                });
+            });
+        });
+
+        document.querySelectorAll('.js-copy-input').forEach(function (input) {
+            input.addEventListener('click', function () {
+                this.select();
+                copyText(this.getAttribute('data-command') || this.value, function () {});
+            });
+        });
+
+        document.querySelectorAll('.js-send-now-btn').forEach(function (button) {
+            button.addEventListener('click', function () {
+                this.disabled = true;
+                this.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Menjalankan...';
             });
         });
     })();
