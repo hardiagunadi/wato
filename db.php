@@ -38,6 +38,14 @@ function getDb(): PDO {
         );
     ");
 
+    $stmt = $db->prepare("
+        INSERT OR IGNORE INTO settings (key, value)
+        VALUES (?, ?)
+    ");
+
+    $stmt->execute(['wa_gateway_url', WA_GATEWAY_URL_DEFAULT]);
+    $stmt->execute(['wa_gateway_key', WA_GATEWAY_KEY_DEFAULT]);
+
     // ===== MIGRATION CHECK =====
 
     $cols = array_column(
@@ -111,6 +119,13 @@ function setSetting(string $key, string $value): void {
     ");
 
     $stmt->execute([$key,$value]);
+}
+
+function getGatewayConfig(): array {
+    return [
+        'url' => rtrim(getSetting('wa_gateway_url', WA_GATEWAY_URL_DEFAULT), '/'),
+        'key' => getSetting('wa_gateway_key', WA_GATEWAY_KEY_DEFAULT),
+    ];
 }
 
 function logMessage(

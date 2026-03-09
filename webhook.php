@@ -109,7 +109,21 @@ if (empty($replyToken)) {
    KIRIM BALASAN
 ========================= */
 
-$url = WA_GATEWAY_URL . '/api/send-message';
+$gateway = getGatewayConfig();
+$baseUrl = $gateway['url'];
+$gatewayKey = $gateway['key'];
+
+if ($baseUrl === '' || $gatewayKey === '') {
+
+    echo json_encode([
+        'status' => 'ok',
+        'note' => 'gateway url/key belum diatur'
+    ]);
+
+    exit;
+}
+
+$url = $baseUrl . '/api/send-message';
 
 $refId = 'wato-reply-' . uniqid();
 
@@ -127,7 +141,7 @@ curl_setopt_array($ch, [
     CURLOPT_POST           => true,
     CURLOPT_POSTFIELDS     => $postData,
     CURLOPT_HTTPHEADER     => [
-        'key: ' . WA_GATEWAY_KEY,
+        'key: ' . $gatewayKey,
         'Authorization: ' . $replyToken,
         'Content-Type: application/x-www-form-urlencoded',
     ],

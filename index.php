@@ -231,8 +231,29 @@ if ($action === 'toggle_number') {
     $messageType = 'success';
 }
 
+if ($action === 'save_gateway_settings') {
+    $gatewayUrl = trim($_POST['wa_gateway_url'] ?? '');
+    $gatewayKey = trim($_POST['wa_gateway_key'] ?? '');
+
+    if ($gatewayUrl === '' || $gatewayKey === '') {
+        $message = 'WA Gateway URL dan WA Gateway Key wajib diisi.';
+        $messageType = 'danger';
+    } elseif (!filter_var($gatewayUrl, FILTER_VALIDATE_URL)) {
+        $message = 'Format WA Gateway URL tidak valid.';
+        $messageType = 'danger';
+    } else {
+        setSetting('wa_gateway_url', rtrim($gatewayUrl, '/'));
+        setSetting('wa_gateway_key', $gatewayKey);
+
+        $message = 'Pengaturan WA Gateway berhasil disimpan.';
+        $messageType = 'success';
+    }
+}
+
 $numbers = getDb()->query('SELECT * FROM numbers ORDER BY name')->fetchAll(PDO::FETCH_ASSOC);
 $logs = getRecentLogs(50);
+$gatewayUrl = getSetting('wa_gateway_url', WA_GATEWAY_URL_DEFAULT);
+$gatewayKey = getSetting('wa_gateway_key', WA_GATEWAY_KEY_DEFAULT);
 
 $healthMap = [];
 $healthCount = [
@@ -513,9 +534,7 @@ foreach ($logs as $log) {
                 max-width: none;
             }
 
-            .form-row .col-md-3,
-            .form-row .col-md-4,
-            .form-row .col-md-2 {
+            .form-row [class*="col-"] {
                 margin-bottom: 10px;
             }
         }
@@ -559,6 +578,34 @@ foreach ($logs as $log) {
             <div class="stat-label">Log Sukses / Gagal</div>
             <div class="stat-value"><?= $logSuccess ?> / <?= $logFailed ?></div>
         </article>
+    </section>
+
+    <section class="content-card">
+        <div class="card-header">
+            <h2 class="card-title">Pengaturan WA Gateway</h2>
+            <p class="card-subtitle">Konfigurasi endpoint dan key gateway disimpan ke database (`settings`).</p>
+        </div>
+        <div class="card-body">
+            <form method="POST" class="form-row align-items-end" autocomplete="off">
+                <input type="hidden" name="action" value="save_gateway_settings">
+
+                <div class="col-md-5">
+                    <label for="wa_gateway_url" class="mb-1">WA Gateway URL</label>
+                    <input id="wa_gateway_url" name="wa_gateway_url" class="form-control" placeholder="https://domain/wa" value="<?= h($gatewayUrl) ?>" required>
+                </div>
+
+                <div class="col-md-5">
+                    <label for="wa_gateway_key" class="mb-1">WA Gateway Key</label>
+                    <input id="wa_gateway_key" type="password" name="wa_gateway_key" class="form-control" placeholder="Masukkan API key" value="<?= h($gatewayKey) ?>" required>
+                </div>
+
+                <div class="col-md-2">
+                    <button class="btn btn-primary btn-block" type="submit">
+                        <i class="fas fa-save mr-1"></i> Simpan
+                    </button>
+                </div>
+            </form>
+        </div>
     </section>
 
     <section class="content-card">

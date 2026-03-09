@@ -5,8 +5,15 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/generate.php';
 
 function sendWaMessage(string $token, string $toPhone, string $message, string $refId): array {
+    $gateway = getGatewayConfig();
+    $baseUrl = $gateway['url'];
+    $gatewayKey = $gateway['key'];
 
-    $url = WA_GATEWAY_URL . '/api/send-message';
+    if ($baseUrl === '' || $gatewayKey === '') {
+        return ['success' => false, 'error' => 'Gateway URL/KEY belum diatur di dashboard.'];
+    }
+
+    $url = $baseUrl . '/api/send-message';
 
     $payload = http_build_query([
         'phone'   => $toPhone,
@@ -22,7 +29,7 @@ function sendWaMessage(string $token, string $toPhone, string $message, string $
         CURLOPT_POST           => true,
         CURLOPT_POSTFIELDS     => $payload,
         CURLOPT_HTTPHEADER     => [
-            'key: ' . WA_GATEWAY_KEY,
+            'key: ' . $gatewayKey,
             'Authorization: ' . $token,
             'Content-Type: application/x-www-form-urlencoded',
         ],
