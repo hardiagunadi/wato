@@ -147,9 +147,69 @@ function h($value): string {
 }
 
 define('CRON_FILE', '/etc/cron.d/wato');
+define('MANUAL_SEND_LOG_DIR', __DIR__ . '/tmp/manual-send');
 
 function isCronInstalled(): bool {
     return file_exists(CRON_FILE);
+}
+
+function ensureManualSendLogDir(): void {
+    if (!is_dir(MANUAL_SEND_LOG_DIR)) {
+        mkdir(MANUAL_SEND_LOG_DIR, 0775, true);
+    }
+}
+
+function buildManualSendLogPath(string $jobId): string {
+    return MANUAL_SEND_LOG_DIR . '/' . $jobId . '.log';
+}
+
+function isProcessRunning(int $pid): bool {
+    if ($pid <= 0) {
+        return false;
+    }
+
+    if (function_exists('posix_kill')) {
+        return @posix_kill($pid, 0);
+    }
+
+    return is_dir('/proc/' . $pid);
+}
+
+function resolvePhpCliBinary(): string {
+    $candidates = [];
+
+    if (PHP_SAPI === 'cli' && PHP_BINARY !== '') {
+        $candidates[] = PHP_BINARY;
+    }
+
+    $whichPhp = trim((string) shell_exec('command -v php 2>/dev/null'));
+
+    if ($whichPhp !== '') {
+        $candidates[] = $whichPhp;
+    }
+
+    $candidates[] = '/usr/bin/php';
+    $candidates[] = '/usr/local/bin/php';
+
+    foreach ($candidates as $candidate) {
+        if ($candidate === '' || !is_file($candidate) || !is_executable($candidate)) {
+            continue;
+        }
+
+        $binaryName = strtolower(basename($candidate));
+
+        if (str_contains($binaryName, 'php-fpm')) {
+            continue;
+        }
+
+        $sapi = trim((string) @shell_exec(escapeshellarg($candidate) . " -r 'echo PHP_SAPI;' 2>/dev/null"));
+
+        if ($sapi === 'cli') {
+            return $candidate;
+        }
+    }
+
+    return 'php';
 }
 
 function getNumberHealth($phone): string {
@@ -184,6 +244,89 @@ $message = '';
 $messageType = 'success';
 $manualSendOutput = '';
 
+if ($action === 'start_send_now') {
+    header('Content-Type: application/json');
+
+    ensureManualSendLogDir();
+
+    $jobId = 'manual-send-' . date('Ymd-His') . '-' . bin2hex(random_bytes(4));
+    $logPath = buildManualSendLogPath($jobId);
+    $phpBinary = escapeshellarg(resolvePhpCliBinary());
+    $scriptPath = escapeshellarg(__DIR__ . '/send.php');
+    $logPathEscaped = escapeshellarg($logPath);
+    $command = $phpBinary . ' ' . $scriptPath . ' --force > ' . $logPathEscaped . ' 2>&1 & echo $!';
+
+    $output = [];
+    exec($command, $output);
+    $pid = (int) ($output[0] ?? 0);
+
+    if ($pid <= 0) {
+        http_response_code(500);
+        echo json_encode([
+            'ok' => false,
+            'error' => 'Gagal memulai proses kirim manual.',
+        ]);
+        exit;
+    }
+
+    $_SESSION['manual_send_job'] = [
+        'job_id' => $jobId,
+        'pid' => $pid,
+        'log_path' => $logPath,
+        'started_at' => time(),
+    ];
+
+    echo json_encode([
+        'ok' => true,
+        'job_id' => $jobId,
+        'pid' => $pid,
+    ]);
+    exit;
+}
+
+if ($action === 'poll_send_now') {
+    header('Content-Type: application/json');
+
+    $jobId = trim($_POST['job_id'] ?? '');
+    $job = $_SESSION['manual_send_job'] ?? null;
+
+    if (!is_array($job) || ($job['job_id'] ?? '') !== $jobId) {
+        http_response_code(404);
+        echo json_encode([
+            'ok' => false,
+            'error' => 'Job tidak ditemukan atau sesi sudah habis.',
+        ]);
+        exit;
+    }
+
+    $logPath = (string) ($job['log_path'] ?? '');
+    $pid = (int) ($job['pid'] ?? 0);
+    $running = isProcessRunning($pid);
+    $output = '';
+
+    if ($logPath !== '' && file_exists($logPath)) {
+        $content = file_get_contents($logPath);
+        $output = trim((string) $content);
+    }
+
+    $summary = null;
+
+    if ($output !== '' && preg_match('/Selesai\.\s*Terkirim:\s*(\d+),\s*Gagal:\s*(\d+)\./i', $output, $matches) === 1) {
+        $summary = [
+            'success' => (int) $matches[1],
+            'failed' => (int) $matches[2],
+        ];
+    }
+
+    echo json_encode([
+        'ok' => true,
+        'running' => $running,
+        'output' => $output,
+        'summary' => $summary,
+    ]);
+    exit;
+}
+
 if ($action === 'add_number') {
     $phone = preg_replace('/\D/', '', $_POST['phone'] ?? '');
     $name = trim($_POST['name'] ?? '');
@@ -214,12 +357,62 @@ if ($action === 'add_number') {
     }
 }
 
+if ($action === 'update_number') {
+    $id = (int) ($_POST['id'] ?? 0);
+    $phone = preg_replace('/\D/', '', $_POST['phone'] ?? '');
+    $name = trim($_POST['name'] ?? '');
+    $token = trim($_POST['token'] ?? '');
+
+    if ($id <= 0 || $phone === '' || $name === '') {
+        $message = 'Data edit nomor tidak valid.';
+        $messageType = 'danger';
+    } else {
+        $db = getDb();
+
+        $existsStmt = $db->prepare('SELECT id FROM numbers WHERE id = ? LIMIT 1');
+        $existsStmt->execute([$id]);
+
+        if (!$existsStmt->fetch(PDO::FETCH_ASSOC)) {
+            $message = 'Nomor yang akan diedit tidak ditemukan.';
+            $messageType = 'danger';
+        } else {
+            $duplicateStmt = $db->prepare('SELECT id FROM numbers WHERE phone = ? AND id != ? LIMIT 1');
+            $duplicateStmt->execute([$phone, $id]);
+
+            if ($duplicateStmt->fetch(PDO::FETCH_ASSOC)) {
+                $message = 'Nomor sudah dipakai data lain.';
+                $messageType = 'warning';
+            } else {
+                $updateStmt = $db->prepare(
+                    "
+                    UPDATE numbers
+                    SET phone = ?, name = ?, token = ?
+                    WHERE id = ?
+                    "
+                );
+
+                $updateStmt->execute([$phone, $name, $token !== '' ? $token : null, $id]);
+
+                $message = 'Data nomor berhasil diperbarui.';
+                $messageType = 'success';
+            }
+        }
+    }
+}
+
 if ($action === 'delete_number') {
     $id = (int) ($_POST['id'] ?? 0);
 
     getDb()->prepare('DELETE FROM numbers WHERE id = ?')->execute([$id]);
 
     $message = 'Nomor berhasil dihapus.';
+    $messageType = 'success';
+}
+
+if ($action === 'clear_logs') {
+    getDb()->exec('DELETE FROM message_log');
+
+    $message = 'Semua log pesan berhasil dihapus.';
     $messageType = 'success';
 }
 
@@ -258,7 +451,7 @@ if ($action === 'save_gateway_settings') {
 }
 
 if ($action === 'send_now') {
-    $phpBinary = escapeshellarg(PHP_BINARY ?: 'php');
+    $phpBinary = escapeshellarg(resolvePhpCliBinary());
     $scriptPath = escapeshellarg(__DIR__ . '/send.php');
     $command = $phpBinary . ' ' . $scriptPath . ' --force 2>&1';
 
@@ -270,12 +463,17 @@ if ($action === 'send_now') {
         $manualSendOutput = '(tidak ada output)';
     }
 
-    if ($exitCode === 0) {
-        $message = 'Test kirim manual selesai dijalankan.';
-        $messageType = 'success';
-    } else {
+    if ($exitCode !== 0) {
         $message = 'Test kirim manual selesai dengan error (exit code ' . $exitCode . ').';
         $messageType = 'danger';
+    } elseif (preg_match('/Selesai\.\s*Terkirim:\s*(\d+),\s*Gagal:\s*(\d+)\./i', $manualSendOutput, $matches) === 1) {
+        $successCount = (int) $matches[1];
+        $failedCount = (int) $matches[2];
+        $message = 'Test kirim manual selesai. Sukses: ' . $successCount . ', Gagal: ' . $failedCount . '.';
+        $messageType = $failedCount > 0 ? 'warning' : 'success';
+    } else {
+        $message = 'Test kirim manual selesai dijalankan, tetapi ringkasan sukses/gagal tidak ditemukan.';
+        $messageType = 'warning';
     }
 }
 
@@ -304,7 +502,7 @@ if ($nextSendAt > 0) {
     $nextSendLabel = 'Belum ada jadwal (jalankan test manual untuk memulai)';
 }
 
-$cronInstallCmd = "sudo tee /etc/cron.d/wato << 'EOF'\n# WATO cron job\n*/30 * * * * www-data /usr/bin/php " . __DIR__ . "/send.php >> /var/log/wato.log 2>&1\nEOF";
+$cronInstallCmd = "sudo tee /etc/cron.d/wato << 'EOF'\n# WATO cron job\n*/30 * * * * www-data /usr/bin/php " . __DIR__ . "/send.php >> " . __DIR__ . "/cron.log 2>&1\nEOF";
 $cronRemoveCmd = "sudo rm -f /etc/cron.d/wato";
 
 $healthMap = [];
@@ -330,7 +528,7 @@ $logSuccess = 0;
 $logFailed = 0;
 
 foreach ($logs as $log) {
-    if (($log['status'] ?? '') === 'success') {
+    if (in_array(($log['status'] ?? ''), ['success', 'sent'], true)) {
         $logSuccess++;
     }
 
@@ -393,6 +591,12 @@ foreach ($logs as $log) {
             justify-content: space-between;
             gap: 12px;
             margin-bottom: 16px;
+        }
+
+        .topbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .brand h1 {
@@ -480,6 +684,12 @@ foreach ($logs as $log) {
         .btn {
             border-radius: 12px;
             font-weight: 700;
+        }
+
+        .btn-clear-log {
+            padding: 0.3rem 0.55rem;
+            font-size: 0.75rem;
+            line-height: 1.1;
         }
 
         .btn-primary {
@@ -570,6 +780,56 @@ foreach ($logs as $log) {
             margin-bottom: 8px;
         }
 
+        .modal-shell {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            z-index: 1200;
+        }
+
+        .modal-shell.is-open {
+            display: flex;
+        }
+
+        .modal-card {
+            width: 100%;
+            max-width: 760px;
+            background: #fff;
+            border-radius: 16px;
+            border: 1px solid #e7eef8;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .modal-card-header {
+            padding: 14px 18px;
+            border-bottom: 1px solid #edf2f8;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .modal-card-title {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 700;
+        }
+
+        .modal-card-subtitle {
+            margin: 4px 0 0;
+            color: var(--text-soft);
+            font-size: 0.82rem;
+        }
+
+        .modal-card-body {
+            padding: 16px 18px 18px;
+        }
+
         @media (max-width: 992px) {
             .stats-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -611,13 +871,107 @@ foreach ($logs as $log) {
             <h1>WATO Dashboard</h1>
             <p>Kelola nomor, pantau kesehatan, dan cek log pengiriman dengan cepat.</p>
         </div>
-        <form method="POST" class="mb-0">
-            <input type="hidden" name="action" value="logout">
-            <button class="btn btn-danger logout-btn btn-sm" type="submit">
-                <i class="fas fa-sign-out-alt mr-1"></i> Logout
+        <div class="topbar-actions">
+            <button class="btn btn-outline-primary btn-sm js-open-gateway-modal" type="button">
+                <i class="fas fa-cog mr-1"></i> Pengaturan Gateway
             </button>
-        </form>
+            <button class="btn btn-primary btn-sm js-open-add-number-modal" type="button">
+                <i class="fas fa-plus mr-1"></i> Tambah Nomor
+            </button>
+            <form method="POST" class="mb-0">
+                <input type="hidden" name="action" value="logout">
+                <button class="btn btn-danger logout-btn btn-sm" type="submit">
+                    <i class="fas fa-sign-out-alt mr-1"></i> Logout
+                </button>
+            </form>
+        </div>
     </header>
+
+    <div class="modal-shell" id="add-number-modal" aria-hidden="true">
+        <div class="modal-card">
+            <div class="modal-card-header">
+                <div>
+                    <h2 class="modal-card-title">Tambah Nomor</h2>
+                    <p class="modal-card-subtitle">Isi data nomor baru. Token boleh dikosongkan jika memakai token default.</p>
+                </div>
+                <button type="button" class="btn btn-outline-secondary btn-sm js-close-add-number-modal">
+                    <i class="fas fa-times mr-1"></i> Tutup
+                </button>
+            </div>
+            <div class="modal-card-body">
+                <form method="POST" class="form-row align-items-end" autocomplete="off">
+                    <input type="hidden" name="action" value="add_number">
+
+                    <div class="col-md-3">
+                        <label for="modal_phone" class="mb-1">Nomor</label>
+                        <input id="modal_phone" name="phone" class="form-control js-phone-input" placeholder="628xxxx" minlength="8" maxlength="20" required>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label for="modal_name" class="mb-1">Nama</label>
+                        <input id="modal_name" name="name" class="form-control" placeholder="Nama kontak" required>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label for="modal_token" class="mb-1">Token (Opsional)</label>
+                        <input id="modal_token" name="token" class="form-control" placeholder="Token khusus nomor ini">
+                    </div>
+
+                    <div class="col-md-2">
+                        <button class="btn btn-primary btn-block" type="submit">
+                            <i class="fas fa-save mr-1"></i> Simpan
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-shell" id="gateway-modal" aria-hidden="true">
+        <div class="modal-card">
+            <div class="modal-card-header">
+                <div>
+                    <h2 class="modal-card-title">Pengaturan WA Gateway</h2>
+                    <p class="modal-card-subtitle">Konfigurasi endpoint dan key gateway disimpan ke database (`settings`).</p>
+                </div>
+                <button type="button" class="btn btn-outline-secondary btn-sm js-close-gateway-modal">
+                    <i class="fas fa-times mr-1"></i> Tutup
+                </button>
+            </div>
+            <div class="modal-card-body">
+                <form method="POST" class="form-row align-items-end" autocomplete="off">
+                    <input type="hidden" name="action" value="save_gateway_settings">
+
+                    <div class="col-md-5">
+                        <label for="modal_wa_gateway_url" class="mb-1">WA Gateway URL</label>
+                        <input id="modal_wa_gateway_url" name="wa_gateway_url" class="form-control" placeholder="https://domain/wa" value="<?= h($gatewayUrl) ?>" required>
+                    </div>
+
+                    <div class="col-md-5">
+                        <label for="modal_wa_gateway_key" class="mb-1">WA Gateway Key</label>
+                        <input id="modal_wa_gateway_key" type="password" name="wa_gateway_key" class="form-control" placeholder="Masukkan API key" value="<?= h($gatewayKey) ?>" required>
+                    </div>
+
+                    <div class="col-md-2">
+                        <button class="btn btn-primary btn-block" type="submit">
+                            <i class="fas fa-save mr-1"></i> Simpan
+                        </button>
+                    </div>
+                </form>
+
+                <hr>
+                <p class="text-muted small mb-1">Link webhook (klik kolom atau tombol untuk salin):</p>
+                <div class="input-group">
+                    <input class="form-control js-copy-input" value="<?= h($webhookLink) ?>" readonly data-command="<?= h($webhookLink) ?>">
+                    <div class="input-group-append">
+                        <button type="button" class="btn btn-outline-secondary js-copy-command" data-command="<?= h($webhookLink) ?>">
+                            <i class="fas fa-copy mr-1"></i> Salin
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <?php if ($message !== '') { ?>
         <div class="alert alert-<?= h($messageType) ?>">
@@ -644,72 +998,34 @@ foreach ($logs as $log) {
         </article>
     </section>
 
-    <section class="content-card">
+    <section class="content-card d-none" id="edit-number-card">
         <div class="card-header">
-            <h2 class="card-title">Pengaturan WA Gateway</h2>
-            <p class="card-subtitle">Konfigurasi endpoint dan key gateway disimpan ke database (`settings`).</p>
+            <h2 class="card-title">Edit Nomor</h2>
+            <p class="card-subtitle">Perbarui data nomor yang dipilih dari tabel.</p>
         </div>
         <div class="card-body">
             <form method="POST" class="form-row align-items-end" autocomplete="off">
-                <input type="hidden" name="action" value="save_gateway_settings">
-
-                <div class="col-md-5">
-                    <label for="wa_gateway_url" class="mb-1">WA Gateway URL</label>
-                    <input id="wa_gateway_url" name="wa_gateway_url" class="form-control" placeholder="https://domain/wa" value="<?= h($gatewayUrl) ?>" required>
-                </div>
-
-                <div class="col-md-5">
-                    <label for="wa_gateway_key" class="mb-1">WA Gateway Key</label>
-                    <input id="wa_gateway_key" type="password" name="wa_gateway_key" class="form-control" placeholder="Masukkan API key" value="<?= h($gatewayKey) ?>" required>
-                </div>
-
-                <div class="col-md-2">
-                    <button class="btn btn-primary btn-block" type="submit">
-                        <i class="fas fa-save mr-1"></i> Simpan
-                    </button>
-                </div>
-            </form>
-
-            <hr>
-            <p class="text-muted small mb-1">Link webhook (klik kolom atau tombol untuk salin):</p>
-            <div class="input-group">
-                <input class="form-control js-copy-input" value="<?= h($webhookLink) ?>" readonly data-command="<?= h($webhookLink) ?>">
-                <div class="input-group-append">
-                    <button type="button" class="btn btn-outline-secondary js-copy-command" data-command="<?= h($webhookLink) ?>">
-                        <i class="fas fa-copy mr-1"></i> Salin
-                    </button>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <section class="content-card">
-        <div class="card-header">
-            <h2 class="card-title">Tambah Nomor</h2>
-            <p class="card-subtitle">Isi data nomor baru. Token boleh dikosongkan jika memakai token default dari konfigurasi.</p>
-        </div>
-        <div class="card-body">
-            <form method="POST" class="form-row align-items-end" autocomplete="off">
-                <input type="hidden" name="action" value="add_number">
+                <input type="hidden" name="action" value="update_number">
+                <input type="hidden" name="id" id="edit_id">
 
                 <div class="col-md-3">
-                    <label for="phone" class="mb-1">Nomor</label>
-                    <input id="phone" name="phone" class="form-control js-phone-input" placeholder="628xxxx" minlength="8" maxlength="20" required>
+                    <label for="edit_phone" class="mb-1">Nomor</label>
+                    <input id="edit_phone" name="phone" class="form-control js-phone-input" placeholder="628xxxx" minlength="8" maxlength="20" required>
                 </div>
 
                 <div class="col-md-3">
-                    <label for="name" class="mb-1">Nama</label>
-                    <input id="name" name="name" class="form-control" placeholder="Nama kontak" required>
+                    <label for="edit_name" class="mb-1">Nama</label>
+                    <input id="edit_name" name="name" class="form-control" placeholder="Nama kontak" required>
                 </div>
 
                 <div class="col-md-4">
-                    <label for="token" class="mb-1">Token (Opsional)</label>
-                    <input id="token" name="token" class="form-control" placeholder="Token khusus nomor ini">
+                    <label for="edit_token" class="mb-1">Token (Opsional)</label>
+                    <input id="edit_token" name="token" class="form-control" placeholder="Token khusus nomor ini">
                 </div>
 
-                <div class="col-md-2">
+                <div class="col-md-2 d-flex gap-2">
                     <button class="btn btn-primary btn-block" type="submit">
-                        <i class="fas fa-plus mr-1"></i> Tambah
+                        <i class="fas fa-save mr-1"></i> Simpan
                     </button>
                 </div>
             </form>
@@ -726,12 +1042,16 @@ foreach ($logs as $log) {
                 <div class="col-lg-5 mb-3 mb-lg-0">
                     <p class="mb-1"><strong>Jadwal berikutnya:</strong> <?= h($nextSendLabel) ?></p>
                     <p class="text-muted small mb-3">Interval acak di `send.php`: sekitar 20 menit sampai 6 jam.</p>
-                    <form method="POST" class="mb-0">
+                    <form method="POST" class="mb-0" id="manual-send-form">
                         <input type="hidden" name="action" value="send_now">
-                        <button class="btn btn-success js-send-now-btn" type="submit">
+                        <button class="btn btn-success js-send-now-btn" type="button" id="manual-send-start-btn">
                             <i class="fas fa-paper-plane mr-1"></i> Test Kirim Manual
                         </button>
                     </form>
+                    <div class="mt-3">
+                        <p class="text-muted small mb-1" id="manual-send-live-status">Belum ada proses manual berjalan.</p>
+                        <pre class="command-block mb-0 d-none" id="manual-send-live-log"></pre>
+                    </div>
                 </div>
                 <div class="col-lg-7">
                     <p class="mb-1">
@@ -820,6 +1140,16 @@ foreach ($logs as $log) {
                                         <i class="fas fa-power-off mr-1"></i> Toggle
                                     </button>
                                 </form>
+                                <button
+                                    class="btn btn-outline-primary btn-sm js-edit-number"
+                                    type="button"
+                                    data-id="<?= (int) $num['id'] ?>"
+                                    data-phone="<?= h($num['phone']) ?>"
+                                    data-name="<?= h($num['name']) ?>"
+                                    data-token="<?= h($num['token'] ?? '') ?>"
+                                >
+                                    <i class="fas fa-pen mr-1"></i> Edit
+                                </button>
                                 <form method="POST" class="mb-0">
                                     <input type="hidden" name="action" value="delete_number">
                                     <input type="hidden" name="id" value="<?= (int) $num['id'] ?>">
@@ -844,7 +1174,15 @@ foreach ($logs as $log) {
         <div class="card-body table-responsive">
             <div class="toolbar">
                 <span class="text-muted small">Menampilkan <?= count($logs) ?> log</span>
-                <input type="search" class="form-control js-filter" data-target="logs-table" placeholder="Cari nomor / status...">
+                <div class="d-flex align-items-center" style="gap: 8px;">
+                    <input type="search" class="form-control js-filter" data-target="logs-table" placeholder="Cari nomor / status...">
+                    <form method="POST" class="mb-0">
+                        <input type="hidden" name="action" value="clear_logs">
+                        <button class="btn btn-outline-danger btn-sm btn-clear-log js-confirm-clear-logs" type="submit">
+                            <i class="fas fa-broom mr-1"></i> Clear Log
+                        </button>
+                    </form>
+                </div>
             </div>
 
             <table class="table" id="logs-table">
@@ -869,7 +1207,7 @@ foreach ($logs as $log) {
                         <td><?= h($log['from_phone']) ?></td>
                         <td><?= h($log['to_phone']) ?></td>
                         <td>
-                            <?php if (($log['status'] ?? '') === 'success') { ?>
+                            <?php if (in_array(($log['status'] ?? ''), ['success', 'sent'], true)) { ?>
                                 <span class="badge badge-success">success</span>
                             <?php } elseif (($log['status'] ?? '') === 'failed') { ?>
                                 <span class="badge badge-failed">failed</span>
@@ -887,19 +1225,25 @@ foreach ($logs as $log) {
 
 <script>
     (function () {
-        var phoneInput = document.querySelector('.js-phone-input');
-
-        if (phoneInput) {
+        document.querySelectorAll('.js-phone-input').forEach(function (phoneInput) {
             phoneInput.addEventListener('input', function () {
                 this.value = this.value.replace(/\D+/g, '');
             });
-        }
+        });
 
         document.querySelectorAll('.js-confirm-delete').forEach(function (button) {
             button.addEventListener('click', function (event) {
                 var name = this.getAttribute('data-name') || 'nomor ini';
 
                 if (!window.confirm('Hapus ' + name + '? Tindakan ini tidak dapat dibatalkan.')) {
+                    event.preventDefault();
+                }
+            });
+        });
+
+        document.querySelectorAll('.js-confirm-clear-logs').forEach(function (button) {
+            button.addEventListener('click', function (event) {
+                if (!window.confirm('Hapus semua log pesan terbaru?')) {
                     event.preventDefault();
                 }
             });
@@ -975,10 +1319,242 @@ foreach ($logs as $log) {
             });
         });
 
-        document.querySelectorAll('.js-send-now-btn').forEach(function (button) {
+        var manualSendButton = document.getElementById('manual-send-start-btn');
+        var manualSendStatus = document.getElementById('manual-send-live-status');
+        var manualSendLog = document.getElementById('manual-send-live-log');
+        var manualSendPolling = null;
+
+        function updateManualSendLogDisplay(text) {
+            if (!manualSendLog) {
+                return;
+            }
+
+            var value = (text || '').trim();
+
+            if (value === '') {
+                manualSendLog.classList.add('d-none');
+                manualSendLog.textContent = '';
+                return;
+            }
+
+            manualSendLog.classList.remove('d-none');
+            manualSendLog.textContent = value;
+            manualSendLog.scrollTop = manualSendLog.scrollHeight;
+        }
+
+        function setManualSendButtonIdle() {
+            if (!manualSendButton) {
+                return;
+            }
+
+            manualSendButton.disabled = false;
+            manualSendButton.innerHTML = '<i class="fas fa-paper-plane mr-1"></i> Test Kirim Manual';
+        }
+
+        function pollManualSendJob(jobId) {
+            if (!jobId) {
+                return;
+            }
+
+            var formData = new FormData();
+            formData.append('action', 'poll_send_now');
+            formData.append('job_id', jobId);
+
+            fetch(window.location.pathname, {
+                method: 'POST',
+                body: formData,
+                credentials: 'same-origin'
+            }).then(function (response) {
+                return response.json();
+            }).then(function (data) {
+                if (!data || !data.ok) {
+                    throw new Error((data && data.error) ? data.error : 'Gagal membaca status proses.');
+                }
+
+                updateManualSendLogDisplay(data.output || '');
+
+                if (data.running) {
+                    if (manualSendStatus) {
+                        manualSendStatus.textContent = 'Proses kirim manual sedang berjalan...';
+                    }
+                    return;
+                }
+
+                if (manualSendPolling) {
+                    clearInterval(manualSendPolling);
+                    manualSendPolling = null;
+                }
+
+                if (manualSendStatus) {
+                    if (data.summary) {
+                        manualSendStatus.textContent = 'Selesai. Sukses: ' + data.summary.success + ', Gagal: ' + data.summary.failed + '.';
+                    } else {
+                        manualSendStatus.textContent = 'Proses selesai. Ringkasan tidak ditemukan.';
+                    }
+                }
+
+                setManualSendButtonIdle();
+            }).catch(function (error) {
+                if (manualSendPolling) {
+                    clearInterval(manualSendPolling);
+                    manualSendPolling = null;
+                }
+
+                if (manualSendStatus) {
+                    manualSendStatus.textContent = 'Gagal membaca proses: ' + error.message;
+                }
+
+                setManualSendButtonIdle();
+            });
+        }
+
+        if (manualSendButton) {
+            manualSendButton.addEventListener('click', function () {
+                manualSendButton.disabled = true;
+                manualSendButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Menjalankan...';
+
+                if (manualSendStatus) {
+                    manualSendStatus.textContent = 'Memulai proses kirim manual...';
+                }
+
+                updateManualSendLogDisplay('');
+
+                var formData = new FormData();
+                formData.append('action', 'start_send_now');
+
+                fetch(window.location.pathname, {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                }).then(function (response) {
+                    return response.json();
+                }).then(function (data) {
+                    if (!data || !data.ok || !data.job_id) {
+                        throw new Error((data && data.error) ? data.error : 'Gagal memulai proses.');
+                    }
+
+                    pollManualSendJob(data.job_id);
+
+                    manualSendPolling = setInterval(function () {
+                        pollManualSendJob(data.job_id);
+                    }, 2000);
+                }).catch(function (error) {
+                    if (manualSendStatus) {
+                        manualSendStatus.textContent = 'Gagal memulai proses: ' + error.message;
+                    }
+                    setManualSendButtonIdle();
+                });
+            });
+        }
+
+        var addNumberModal = document.getElementById('add-number-modal');
+        var addNumberModalPhone = document.getElementById('modal_phone');
+        var gatewayModal = document.getElementById('gateway-modal');
+        var gatewayModalUrl = document.getElementById('modal_wa_gateway_url');
+
+        function openAddNumberModal() {
+            if (!addNumberModal) {
+                return;
+            }
+
+            addNumberModal.classList.add('is-open');
+            addNumberModal.setAttribute('aria-hidden', 'false');
+
+            if (addNumberModalPhone) {
+                addNumberModalPhone.focus();
+            }
+        }
+
+        function closeAddNumberModal() {
+            if (!addNumberModal) {
+                return;
+            }
+
+            addNumberModal.classList.remove('is-open');
+            addNumberModal.setAttribute('aria-hidden', 'true');
+        }
+
+        function openGatewayModal() {
+            if (!gatewayModal) {
+                return;
+            }
+
+            gatewayModal.classList.add('is-open');
+            gatewayModal.setAttribute('aria-hidden', 'false');
+
+            if (gatewayModalUrl) {
+                gatewayModalUrl.focus();
+            }
+        }
+
+        function closeGatewayModal() {
+            if (!gatewayModal) {
+                return;
+            }
+
+            gatewayModal.classList.remove('is-open');
+            gatewayModal.setAttribute('aria-hidden', 'true');
+        }
+
+        document.querySelectorAll('.js-open-add-number-modal').forEach(function (button) {
+            button.addEventListener('click', openAddNumberModal);
+        });
+
+        document.querySelectorAll('.js-close-add-number-modal').forEach(function (button) {
+            button.addEventListener('click', closeAddNumberModal);
+        });
+
+        document.querySelectorAll('.js-open-gateway-modal').forEach(function (button) {
+            button.addEventListener('click', openGatewayModal);
+        });
+
+        document.querySelectorAll('.js-close-gateway-modal').forEach(function (button) {
+            button.addEventListener('click', closeGatewayModal);
+        });
+
+        if (addNumberModal) {
+            addNumberModal.addEventListener('click', function (event) {
+                if (event.target === addNumberModal) {
+                    closeAddNumberModal();
+                }
+            });
+        }
+
+        if (gatewayModal) {
+            gatewayModal.addEventListener('click', function (event) {
+                if (event.target === gatewayModal) {
+                    closeGatewayModal();
+                }
+            });
+        }
+
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+                closeAddNumberModal();
+                closeGatewayModal();
+            }
+        });
+
+        var editCard = document.getElementById('edit-number-card');
+        var editId = document.getElementById('edit_id');
+        var editPhone = document.getElementById('edit_phone');
+        var editName = document.getElementById('edit_name');
+        var editToken = document.getElementById('edit_token');
+
+        document.querySelectorAll('.js-edit-number').forEach(function (button) {
             button.addEventListener('click', function () {
-                this.disabled = true;
-                this.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Menjalankan...';
+                if (!editCard || !editId || !editPhone || !editName || !editToken) {
+                    return;
+                }
+
+                editId.value = this.getAttribute('data-id') || '';
+                editPhone.value = (this.getAttribute('data-phone') || '').replace(/\D+/g, '');
+                editName.value = this.getAttribute('data-name') || '';
+                editToken.value = this.getAttribute('data-token') || '';
+
+                editCard.classList.remove('d-none');
+                editCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                editPhone.focus();
             });
         });
     })();

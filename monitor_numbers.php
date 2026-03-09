@@ -3,56 +3,48 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
 
-function log_out(string $msg): void {
-
-    echo "[" . date('Y-m-d H:i:s') . "] $msg\n";
+function log_out(string $msg): void
+{
+    echo '[' . date('Y-m-d H:i:s') . "] $msg\n";
 }
 
-$pdo = getPDO();
-
-/*
-cek pesan gagal dalam 30 menit
-*/
+$db = getDb();
 
 $sql = "
-SELECT 
+SELECT
     from_phone,
-    COUNT(*) as failed_count
-FROM log_messages
-WHERE status='failed'
-AND created_at >= DATE_SUB(NOW(), INTERVAL 30 MINUTE)
+    COUNT(*) AS failed_count
+FROM message_log
+WHERE status = 'failed'
+  AND sent_at >= datetime('now', '-30 minutes')
 GROUP BY from_phone
 HAVING failed_count >= 5
 ";
 
-$stmt = $pdo->query($sql);
-
+$stmt = $db->query($sql);
 $numbers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 if (!$numbers) {
-
-    log_out("Tidak ada nomor bermasalah.");
-
+    log_out('Tidak ada nomor bermasalah.');
     exit;
 }
 
 foreach ($numbers as $row) {
+    $phone = (string) ($row['from_phone'] ?? '');
 
-    $phone = $row['from_phone'];
+    if ($phone === '' || $phone === 'system') {
+        continue;
+    }
 
     log_out("Nomor $phone terdeteksi sering gagal kirim.");
 
-    /*
-    pause nomor selama 1 jam
-    */
-
     $pauseUntil = date('Y-m-d H:i:s', time() + 3600);
 
-    $update = $pdo->prepare("
-        UPDATE numbers 
+    $update = $db->prepare('
+        UPDATE numbers
         SET paused_until = ?
         WHERE phone = ?
-    ");
+    ');
 
     $update->execute([$pauseUntil, $phone]);
 

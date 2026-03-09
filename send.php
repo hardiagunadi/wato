@@ -281,7 +281,7 @@ foreach ($senders as $from) {
 
         $result = sendWaMessage($token, $to['phone'], $message, $refId);
 
-        $status = $result['success'] ? 'sent' : 'failed';
+        $status = $result['success'] ? 'success' : 'failed';
 
         logMessage($from['phone'], $to['phone'], $message, 'out', $status, $refId);
 
