@@ -1,3 +1,4 @@
+```php
 <?php
 
 session_start();
@@ -10,30 +11,21 @@ define('AUTH_USER', 'wato');
 define('AUTH_PASS', 'wato');
 
 if (isset($_POST['action']) && $_POST['action'] === 'login') {
-
     if ($_POST['username'] === AUTH_USER && $_POST['password'] === AUTH_PASS) {
-
         $_SESSION['logged_in'] = true;
-
     } else {
-
         $loginError = 'Username atau password salah.';
     }
 }
 
 if (isset($_POST['action']) && $_POST['action'] === 'logout') {
-
     session_destroy();
-
     header('Location: /');
-
     exit;
 }
 
 if (empty($_SESSION['logged_in'])) {
-
     $loginError = $loginError ?? '';
-
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -54,30 +46,40 @@ height:100vh;
 }
 
 .box{
-background:white;
+background:#fff;
 padding:30px;
-border-radius:10px;
-box-shadow:0 4px 12px rgba(0,0,0,.1);
+border-radius:12px;
+box-shadow:0 4px 16px rgba(0,0,0,.1);
+width:320px;
 }
 
 input{
-display:block;
-margin-bottom:10px;
+width:100%;
 padding:8px;
-width:200px;
+margin-bottom:10px;
+border:1px solid #cbd5e1;
+border-radius:6px;
 }
 
 button{
-padding:8px 16px;
+width:100%;
+padding:10px;
+background:#1e40af;
+color:#fff;
+border:none;
+border-radius:6px;
+cursor:pointer;
 }
 
 .err{
-color:red;
+background:#fee2e2;
+color:#991b1b;
+padding:8px;
+border-radius:6px;
 margin-bottom:10px;
 }
 
 </style>
-
 </head>
 
 <body>
@@ -91,15 +93,10 @@ margin-bottom:10px;
 <?php endif; ?>
 
 <form method="POST">
-
 <input type="hidden" name="action" value="login">
-
 <input name="username" placeholder="Username">
-
 <input type="password" name="password" placeholder="Password">
-
 <button>Login</button>
-
 </form>
 
 </div>
@@ -138,7 +135,6 @@ function getNumberHealth(string $phone): string {
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($row['failed'] >= 5) return 'paused';
-
     if ($row['failed'] >= 2) return 'warning';
 
     return 'healthy';
@@ -149,7 +145,6 @@ function getNumberHealth(string $phone): string {
 ========================= */
 
 $action = $_POST['action'] ?? '';
-
 $message = '';
 
 if ($action === 'add_number') {
@@ -198,9 +193,7 @@ if ($action === 'toggle_number') {
 if ($action === 'send_now') {
 
     ob_start();
-
     passthru('php ' . escapeshellarg(__DIR__.'/send.php') . ' --force');
-
     $message = ob_get_clean();
 }
 
@@ -226,25 +219,73 @@ $logs = getRecentLogs(50);
 body{
 font-family:system-ui;
 background:#f1f5f9;
-padding:30px;
+margin:0;
+padding:20px;
+}
+
+header{
+background:#1e40af;
+color:white;
+padding:14px 20px;
+border-radius:10px;
+margin-bottom:20px;
+}
+
+.card{
+background:white;
+padding:20px;
+border-radius:12px;
+box-shadow:0 1px 4px rgba(0,0,0,.1);
+margin-bottom:20px;
 }
 
 table{
-border-collapse:collapse;
 width:100%;
+border-collapse:collapse;
 }
 
-th,td{
+th{
+text-align:left;
+padding:10px;
+background:#f8fafc;
+border-bottom:2px solid #e2e8f0;
+}
+
+td{
 padding:8px;
-border-bottom:1px solid #ddd;
+border-bottom:1px solid #f1f5f9;
+}
+
+input{
+padding:6px;
+border:1px solid #cbd5e1;
+border-radius:6px;
 }
 
 button{
-padding:4px 10px;
+padding:6px 12px;
+border:none;
+border-radius:6px;
+cursor:pointer;
+}
+
+.btn{
+background:#1e40af;
+color:white;
+}
+
+.btn-red{
+background:#ef4444;
+color:white;
+}
+
+.btn-gray{
+background:#94a3b8;
+color:white;
 }
 
 .pill{
-padding:3px 8px;
+padding:2px 8px;
 border-radius:999px;
 font-size:12px;
 font-weight:600;
@@ -261,56 +302,54 @@ color:#991b1b;
 }
 
 </style>
-
 </head>
 
 <body>
 
-<h1>WATO Dashboard</h1>
-
-<form method="POST">
+<header>
+<h2>WATO Dashboard</h2>
+<form method="POST" style="float:right">
 <input type="hidden" name="action" value="logout">
-<button>Logout</button>
+<button class="btn-gray">Logout</button>
 </form>
+</header>
 
 <?php if ($message): ?>
-
-<p><?= htmlspecialchars($message) ?></p>
-
+<div class="card"><?= htmlspecialchars($message) ?></div>
 <?php endif; ?>
 
-<h2>Tambah Nomor</h2>
+<div class="card">
+
+<h3>Tambah Nomor</h3>
 
 <form method="POST">
 
 <input type="hidden" name="action" value="add_number">
 
 <input name="phone" placeholder="628xxxx">
-
 <input name="name" placeholder="Nama">
-
 <input name="token" placeholder="Token">
 
-<button>Tambah</button>
+<button class="btn">Tambah</button>
 
 </form>
 
-<h2>Daftar Nomor</h2>
+</div>
+
+<div class="card">
+
+<h3>Daftar Nomor</h3>
 
 <table>
 
 <thead>
-
 <tr>
-
 <th>Nomor</th>
 <th>Nama</th>
 <th>Status</th>
 <th>Kesehatan</th>
 <th>Aksi</th>
-
 </tr>
-
 </thead>
 
 <tbody>
@@ -326,13 +365,9 @@ color:#991b1b;
 <td><?= htmlspecialchars($num['name']) ?></td>
 
 <td>
-
 <span class="pill <?= $num['active'] ? 'pill-active':'pill-inactive' ?>">
-
 <?= $num['active'] ? 'Aktif':'Nonaktif' ?>
-
 </span>
-
 </td>
 
 <td>
@@ -358,20 +393,18 @@ color:#991b1b;
 <form method="POST" style="display:inline">
 
 <input type="hidden" name="action" value="toggle_number">
-
 <input type="hidden" name="id" value="<?= $num['id'] ?>">
 
-<button>Toggle</button>
+<button class="btn-gray">Toggle</button>
 
 </form>
 
 <form method="POST" style="display:inline">
 
 <input type="hidden" name="action" value="delete_number">
-
 <input type="hidden" name="id" value="<?= $num['id'] ?>">
 
-<button>Hapus</button>
+<button class="btn-red">Hapus</button>
 
 </form>
 
@@ -385,17 +418,19 @@ color:#991b1b;
 
 </table>
 
-<h2>Log Pesan</h2>
+</div>
+
+<div class="card">
+
+<h3>Log Pesan</h3>
 
 <table>
 
 <tr>
-
 <th>Waktu</th>
 <th>Dari</th>
 <th>Ke</th>
 <th>Status</th>
-
 </tr>
 
 <?php foreach ($logs as $log): ?>
@@ -403,11 +438,8 @@ color:#991b1b;
 <tr>
 
 <td><?= $log['sent_at'] ?></td>
-
 <td><?= $log['from_phone'] ?></td>
-
 <td><?= $log['to_phone'] ?></td>
-
 <td><?= $log['status'] ?></td>
 
 </tr>
@@ -415,6 +447,8 @@ color:#991b1b;
 <?php endforeach; ?>
 
 </table>
+
+</div>
 
 </body>
 </html>
