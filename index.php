@@ -1,103 +1,65 @@
-```php
 <?php
 
 session_start();
 
-/* =========================
-   AUTH
-========================= */
+define('AUTH_USER','wato');
+define('AUTH_PASS','wato');
 
-define('AUTH_USER', 'wato');
-define('AUTH_PASS', 'wato');
-
-if (isset($_POST['action']) && $_POST['action'] === 'login') {
-    if ($_POST['username'] === AUTH_USER && $_POST['password'] === AUTH_PASS) {
-        $_SESSION['logged_in'] = true;
-    } else {
-        $loginError = 'Username atau password salah.';
+if(isset($_POST['action']) && $_POST['action']=='login'){
+    if($_POST['username']==AUTH_USER && $_POST['password']==AUTH_PASS){
+        $_SESSION['logged_in']=true;
+    }else{
+        $loginError="Username atau password salah";
     }
 }
 
-if (isset($_POST['action']) && $_POST['action'] === 'logout') {
+if(isset($_POST['action']) && $_POST['action']=='logout'){
     session_destroy();
-    header('Location: /');
+    header("Location: /");
     exit;
 }
 
-if (empty($_SESSION['logged_in'])) {
-    $loginError = $loginError ?? '';
+if(empty($_SESSION['logged_in'])){
 ?>
 <!DOCTYPE html>
-<html lang="id">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WATO - Login</title>
 
-<style>
+<title>WATO Login</title>
 
-body{
-font-family:system-ui;
-background:#f1f5f9;
-display:flex;
-align-items:center;
-justify-content:center;
-height:100vh;
-}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css">
 
-.box{
-background:#fff;
-padding:30px;
-border-radius:12px;
-box-shadow:0 4px 16px rgba(0,0,0,.1);
-width:320px;
-}
-
-input{
-width:100%;
-padding:8px;
-margin-bottom:10px;
-border:1px solid #cbd5e1;
-border-radius:6px;
-}
-
-button{
-width:100%;
-padding:10px;
-background:#1e40af;
-color:#fff;
-border:none;
-border-radius:6px;
-cursor:pointer;
-}
-
-.err{
-background:#fee2e2;
-color:#991b1b;
-padding:8px;
-border-radius:6px;
-margin-bottom:10px;
-}
-
-</style>
 </head>
 
-<body>
+<body class="login-page">
 
-<div class="box">
+<div class="login-box">
 
-<h2>WATO Login</h2>
+<div class="card">
 
-<?php if ($loginError): ?>
-<div class="err"><?= htmlspecialchars($loginError) ?></div>
-<?php endif; ?>
+<div class="card-body login-card-body">
+
+<p class="login-box-msg">WATO Login</p>
 
 <form method="POST">
+
 <input type="hidden" name="action" value="login">
-<input name="username" placeholder="Username">
-<input type="password" name="password" placeholder="Password">
-<button>Login</button>
+
+<div class="input-group mb-3">
+<input name="username" class="form-control" placeholder="Username">
+</div>
+
+<div class="input-group mb-3">
+<input type="password" name="password" class="form-control" placeholder="Password">
+</div>
+
+<button class="btn btn-primary btn-block">Login</button>
+
 </form>
+
+</div>
+
+</div>
 
 </div>
 
@@ -107,284 +69,224 @@ margin-bottom:10px;
 exit;
 }
 
-/* =========================
-   LOAD CONFIG
-========================= */
+require_once __DIR__.'/config.php';
+require_once __DIR__.'/db.php';
 
-require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/db.php';
+function getNumberHealth($phone){
 
-/* =========================
-   HEALTH INDICATOR
-========================= */
+$db=getDb();
 
-function getNumberHealth(string $phone): string {
+$stmt=$db->prepare("
+SELECT COUNT(*) as failed
+FROM message_log
+WHERE from_phone=?
+AND status='failed'
+AND sent_at>=datetime('now','-1 hour')
+");
 
-    $db = getDb();
+$stmt->execute([$phone]);
 
-    $stmt = $db->prepare("
-        SELECT COUNT(*) as failed
-        FROM message_log
-        WHERE from_phone = ?
-        AND status='failed'
-        AND sent_at >= datetime('now','-1 hour')
-    ");
+$row=$stmt->fetch(PDO::FETCH_ASSOC);
 
-    $stmt->execute([$phone]);
+if($row['failed']>=5) return "paused";
+if($row['failed']>=2) return "warning";
 
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if ($row['failed'] >= 5) return 'paused';
-    if ($row['failed'] >= 2) return 'warning';
-
-    return 'healthy';
+return "healthy";
 }
 
-/* =========================
-   HANDLE POST
-========================= */
+$action=$_POST['action']??'';
+$message="";
 
-$action = $_POST['action'] ?? '';
-$message = '';
+if($action=='add_number'){
 
-if ($action === 'add_number') {
+$phone=preg_replace('/\D/','',$_POST['phone']);
+$name=$_POST['name'];
+$token=$_POST['token'];
 
-    $phone = preg_replace('/\D/','',$_POST['phone'] ?? '');
-    $name  = $_POST['name'] ?? '';
-    $token = $_POST['token'] ?? '';
+$db=getDb();
 
-    if ($phone) {
+$stmt=$db->prepare("
+INSERT OR IGNORE INTO numbers(phone,name,token)
+VALUES(?,?,?)
+");
 
-        $db = getDb();
+$stmt->execute([$phone,$name,$token?:null]);
 
-        $stmt = $db->prepare("
-            INSERT OR IGNORE INTO numbers (phone,name,token)
-            VALUES (?,?,?)
-        ");
-
-        $stmt->execute([$phone,$name,$token ?: null]);
-
-        $message = "Nomor $phone berhasil ditambahkan.";
-    }
+$message="Nomor berhasil ditambahkan";
 }
 
-if ($action === 'delete_number') {
+if($action=='delete_number'){
 
-    $id = (int)($_POST['id'] ?? 0);
+$id=$_POST['id'];
 
-    getDb()->prepare("DELETE FROM numbers WHERE id=?")->execute([$id]);
+getDb()->prepare("DELETE FROM numbers WHERE id=?")->execute([$id]);
 
-    $message = "Nomor dihapus.";
 }
 
-if ($action === 'toggle_number') {
+if($action=='toggle_number'){
 
-    $id = (int)($_POST['id'] ?? 0);
+$id=$_POST['id'];
 
-    getDb()->prepare("
-        UPDATE numbers
-        SET active = CASE WHEN active=1 THEN 0 ELSE 1 END
-        WHERE id=?
-    ")->execute([$id]);
+getDb()->prepare("
+UPDATE numbers
+SET active=CASE WHEN active=1 THEN 0 ELSE 1 END
+WHERE id=?
+")->execute([$id]);
 
-    $message = "Status nomor diperbarui.";
 }
 
-if ($action === 'send_now') {
-
-    ob_start();
-    passthru('php ' . escapeshellarg(__DIR__.'/send.php') . ' --force');
-    $message = ob_get_clean();
-}
-
-/* =========================
-   FETCH DATA
-========================= */
-
-$numbers = getDb()->query("
-SELECT * FROM numbers ORDER BY name
-")->fetchAll(PDO::FETCH_ASSOC);
-
-$logs = getRecentLogs(50);
+$numbers=getDb()->query("SELECT * FROM numbers ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+$logs=getRecentLogs(50);
 
 ?>
+
 <!DOCTYPE html>
 <html>
+
 <head>
-<meta charset="UTF-8">
+
 <title>WATO Dashboard</title>
 
-<style>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css">
 
-body{
-font-family:system-ui;
-background:#f1f5f9;
-margin:0;
-padding:20px;
-}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css">
 
-header{
-background:#1e40af;
-color:white;
-padding:14px 20px;
-border-radius:10px;
-margin-bottom:20px;
-}
-
-.card{
-background:white;
-padding:20px;
-border-radius:12px;
-box-shadow:0 1px 4px rgba(0,0,0,.1);
-margin-bottom:20px;
-}
-
-table{
-width:100%;
-border-collapse:collapse;
-}
-
-th{
-text-align:left;
-padding:10px;
-background:#f8fafc;
-border-bottom:2px solid #e2e8f0;
-}
-
-td{
-padding:8px;
-border-bottom:1px solid #f1f5f9;
-}
-
-input{
-padding:6px;
-border:1px solid #cbd5e1;
-border-radius:6px;
-}
-
-button{
-padding:6px 12px;
-border:none;
-border-radius:6px;
-cursor:pointer;
-}
-
-.btn{
-background:#1e40af;
-color:white;
-}
-
-.btn-red{
-background:#ef4444;
-color:white;
-}
-
-.btn-gray{
-background:#94a3b8;
-color:white;
-}
-
-.pill{
-padding:2px 8px;
-border-radius:999px;
-font-size:12px;
-font-weight:600;
-}
-
-.pill-active{
-background:#dcfce7;
-color:#166534;
-}
-
-.pill-inactive{
-background:#fee2e2;
-color:#991b1b;
-}
-
-</style>
 </head>
 
-<body>
+<body class="hold-transition sidebar-mini">
 
-<header>
-<h2>WATO Dashboard</h2>
-<form method="POST" style="float:right">
+<div class="wrapper">
+
+<nav class="main-header navbar navbar-expand navbar-white navbar-light">
+
+<ul class="navbar-nav">
+<li class="nav-item">
+<a class="nav-link"><b>WATO Dashboard</b></a>
+</li>
+</ul>
+
+<form method="POST" class="ml-auto">
 <input type="hidden" name="action" value="logout">
-<button class="btn-gray">Logout</button>
+<button class="btn btn-danger btn-sm">Logout</button>
 </form>
-</header>
 
-<?php if ($message): ?>
-<div class="card"><?= htmlspecialchars($message) ?></div>
-<?php endif; ?>
+</nav>
+
+<div class="content-wrapper">
+
+<section class="content pt-3">
+
+<div class="container-fluid">
+
+<?php if($message){ ?>
+
+<div class="alert alert-success">
+<?=htmlspecialchars($message)?>
+</div>
+
+<?php } ?>
 
 <div class="card">
 
-<h3>Tambah Nomor</h3>
+<div class="card-header">
+
+<h3 class="card-title">Tambah Nomor</h3>
+
+</div>
+
+<div class="card-body">
 
 <form method="POST">
 
 <input type="hidden" name="action" value="add_number">
 
-<input name="phone" placeholder="628xxxx">
-<input name="name" placeholder="Nama">
-<input name="token" placeholder="Token">
+<div class="row">
 
-<button class="btn">Tambah</button>
+<div class="col">
+<input name="phone" class="form-control" placeholder="628xxxx">
+</div>
+
+<div class="col">
+<input name="name" class="form-control" placeholder="Nama">
+</div>
+
+<div class="col">
+<input name="token" class="form-control" placeholder="Token">
+</div>
+
+<div class="col">
+<button class="btn btn-primary">Tambah</button>
+</div>
+
+</div>
 
 </form>
 
 </div>
 
+</div>
+
 <div class="card">
 
-<h3>Daftar Nomor</h3>
+<div class="card-header">
 
-<table>
+<h3 class="card-title">Daftar Nomor</h3>
+
+</div>
+
+<div class="card-body table-responsive">
+
+<table class="table table-bordered">
 
 <thead>
+
 <tr>
+
 <th>Nomor</th>
 <th>Nama</th>
 <th>Status</th>
 <th>Kesehatan</th>
 <th>Aksi</th>
+
 </tr>
+
 </thead>
 
 <tbody>
 
-<?php foreach ($numbers as $num): ?>
+<?php foreach($numbers as $num): ?>
 
-<?php $health = getNumberHealth($num['phone']); ?>
+<?php $health=getNumberHealth($num['phone']); ?>
 
 <tr>
 
-<td><?= htmlspecialchars($num['phone']) ?></td>
+<td><?=$num['phone']?></td>
 
-<td><?= htmlspecialchars($num['name']) ?></td>
+<td><?=$num['name']?></td>
 
 <td>
-<span class="pill <?= $num['active'] ? 'pill-active':'pill-inactive' ?>">
-<?= $num['active'] ? 'Aktif':'Nonaktif' ?>
-</span>
+<?php if($num['active']){ ?>
+<span class="badge badge-success">Aktif</span>
+<?php }else{ ?>
+<span class="badge badge-danger">Nonaktif</span>
+<?php } ?>
 </td>
 
 <td>
 
-<?php if ($health === 'healthy'): ?>
+<?php if($health=="healthy"){ ?>
 
-<span class="pill pill-active">🟢 Healthy</span>
+<span class="badge badge-success">Healthy</span>
 
-<?php elseif ($health === 'warning'): ?>
+<?php }elseif($health=="warning"){ ?>
 
-<span class="pill" style="background:#fef9c3;color:#854d0e;">🟡 Warning</span>
+<span class="badge badge-warning">Warning</span>
 
-<?php else: ?>
+<?php }else{ ?>
 
-<span class="pill pill-inactive">🔴 Paused</span>
+<span class="badge badge-danger">Paused</span>
 
-<?php endif; ?>
+<?php } ?>
 
 </td>
 
@@ -393,18 +295,18 @@ color:#991b1b;
 <form method="POST" style="display:inline">
 
 <input type="hidden" name="action" value="toggle_number">
-<input type="hidden" name="id" value="<?= $num['id'] ?>">
+<input type="hidden" name="id" value="<?=$num['id']?>">
 
-<button class="btn-gray">Toggle</button>
+<button class="btn btn-secondary btn-sm">Toggle</button>
 
 </form>
 
 <form method="POST" style="display:inline">
 
 <input type="hidden" name="action" value="delete_number">
-<input type="hidden" name="id" value="<?= $num['id'] ?>">
+<input type="hidden" name="id" value="<?=$num['id']?>">
 
-<button class="btn-red">Hapus</button>
+<button class="btn btn-danger btn-sm">Hapus</button>
 
 </form>
 
@@ -420,11 +322,19 @@ color:#991b1b;
 
 </div>
 
+</div>
+
 <div class="card">
 
-<h3>Log Pesan</h3>
+<div class="card-header">
 
-<table>
+<h3 class="card-title">Log Pesan</h3>
+
+</div>
+
+<div class="card-body table-responsive">
+
+<table class="table table-striped">
 
 <tr>
 <th>Waktu</th>
@@ -433,14 +343,14 @@ color:#991b1b;
 <th>Status</th>
 </tr>
 
-<?php foreach ($logs as $log): ?>
+<?php foreach($logs as $log): ?>
 
 <tr>
 
-<td><?= $log['sent_at'] ?></td>
-<td><?= $log['from_phone'] ?></td>
-<td><?= $log['to_phone'] ?></td>
-<td><?= $log['status'] ?></td>
+<td><?=$log['sent_at']?></td>
+<td><?=$log['from_phone']?></td>
+<td><?=$log['to_phone']?></td>
+<td><?=$log['status']?></td>
 
 </tr>
 
@@ -450,5 +360,16 @@ color:#991b1b;
 
 </div>
 
+</div>
+
+</div>
+
+</section>
+
+</div>
+
+</div>
+
 </body>
+
 </html>
